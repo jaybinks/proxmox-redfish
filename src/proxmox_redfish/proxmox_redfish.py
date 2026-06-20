@@ -159,6 +159,22 @@ def handle_proxmox_error(
     message = str(exception)
     vm_context = f" for VM {vm_id}" if vm_id is not None else ""
 
+    # A missing VM: Proxmox returns 500 "Configuration file '...' does not exist".
+    # Map it to a proper Redfish 404 (Not Found), not a 500.
+    if "does not exist" in message.lower() or status_code == 404:
+        return {
+            "error": {
+                "code": "Base.1.0.ResourceMissingAtURI",
+                "message": f"{operation} failed: the resource{vm_context} was not found.",
+                "@Message.ExtendedInfo": [
+                    {
+                        "MessageId": "Base.1.0.ResourceMissingAtURI",
+                        "Message": f"The resource{vm_context} was not found.",
+                    }
+                ],
+            }
+        }, 404
+
     # Map Proxmox status codes to Redfish error codes
     if status_code == 403:
         redfish_error_code = "Base.1.0.InsufficientPrivilege"
