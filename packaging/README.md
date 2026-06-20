@@ -10,9 +10,9 @@ make deb VERSION=0.3.0
 ```
 
 `make deb` runs `packaging/build_deb.py`, which stages the tree, vendors the two
-pure-Python runtime deps (`proxmoxer`, `requests-toolbelt`) as offline wheels, and
-writes the `.deb` ar archive directly — so it builds on macOS or Linux with just
-Python + pip. (`make deb-dpkg` uses `dpkg-deb` instead, on hosts that have it.)
+pure-Python runtime deps (`proxmoxer`, `requests-toolbelt`) **unpacked** under
+`vendor/`, and writes the `.deb` ar archive directly — so it builds on macOS or Linux
+with just Python + pip. (`make deb-dpkg` uses `dpkg-deb` instead, on hosts that have it.)
 
 ## Install (on the Proxmox host)
 
@@ -56,7 +56,6 @@ package creates is cleaned by `postrm`.
 |------|----------|
 | `/opt/proxmox-redfish/src/` | application modules |
 | `/opt/proxmox-redfish/vendor/` | bundled pure-Python deps (proxmoxer, requests-toolbelt) |
-| `/opt/proxmox-redfish/src/` | application modules |
 | `/etc/proxmox-redfish/params.env` | configuration (conffile) |
 | `/etc/proxmox-redfish/server.{crt,key}` | TLS cert (generated) |
 | `/var/lib/proxmox-redfish/` | SecureBoot state + varstores |
