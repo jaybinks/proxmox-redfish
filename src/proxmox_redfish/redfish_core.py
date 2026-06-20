@@ -39,6 +39,47 @@ REDFISH_VERSION = "1.18.0"
 APP_VERSION = "0.2.6"
 
 
+def _resolve_build_commit() -> Optional[str]:
+    """
+    Short git commit the build was made from. The packaged build bakes it into
+    proxmox_redfish/_buildinfo.py; a source checkout falls back to `git rev-parse`.
+    Returns None if neither is available.
+    """
+    try:
+        from proxmox_redfish import _buildinfo  # type: ignore
+
+        commit = getattr(_buildinfo, "GIT_COMMIT", None)
+        if commit:
+            return str(commit)
+    except Exception:  # noqa: BLE001 - not a packaged build
+        pass
+    try:
+        import subprocess  # nosec B404
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(  # nosec B603 B607 - argv, shell=False, no user input
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=here,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:  # noqa: BLE001 - no git / not a repo
+        pass
+    return None
+
+
+BUILD_COMMIT = _resolve_build_commit()
+
+
+def full_version() -> str:
+    """e.g. '0.2.6+a1b2c3d', or just '0.2.6' if the commit is unknown."""
+    return f"{APP_VERSION}+{BUILD_COMMIT}" if BUILD_COMMIT else APP_VERSION
+
+
 def service_root_uuid() -> str:
     return os.getenv("REDFISH_SERVICE_UUID", "00000000-0000-0000-0000-000000000000")
 
@@ -68,7 +109,7 @@ def build_service_root() -> Dict[str, Any]:
         "JsonSchemas": {"@odata.id": "/redfish/v1/JsonSchemas"},
         "Vendor": "Proxmox",
         "Product": "proxmox-redfish",
-        "Oem": {"Proxmox": {"Version": APP_VERSION}},
+        "Oem": {"Proxmox": {"Version": APP_VERSION, "BuildCommit": BUILD_COMMIT, "FullVersion": full_version()}},
         # Declare exactly which OData query parameters this service honors
         # (DSP0266: clients must consult this before using query params).
         "ProtocolFeaturesSupported": {

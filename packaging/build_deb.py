@@ -19,7 +19,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PKG = os.path.join(ROOT, "packaging")
@@ -88,6 +87,15 @@ def main():
             shutil.copy2(os.path.join(ROOT, "src/proxmox_redfish", fn), os.path.join(app, "src/proxmox_redfish", fn))
     for fn in ("setup.py", "pyproject.toml", "requirements.txt"):
         shutil.copy2(os.path.join(ROOT, fn), os.path.join(app, fn))
+    # Bake the build's git commit so the daemon can report it (Server header / Oem).
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=False
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001
+        commit = ""
+    with open(os.path.join(app, "src/proxmox_redfish/_buildinfo.py"), "w") as fh:
+        fh.write(f'# Generated at package build time.\nGIT_COMMIT = "{commit}"\n')
     os.makedirs(os.path.join(app, "config"))
     for fn in os.listdir(os.path.join(ROOT, "config")):
         if fn.endswith(".example"):
@@ -118,7 +126,9 @@ def main():
 
     # --- systemd unit + config ---
     os.makedirs(os.path.join(stage, "lib/systemd/system"))
-    shutil.copy2(os.path.join(PKG, "proxmox-redfish.service"), os.path.join(stage, "lib/systemd/system/proxmox-redfish.service"))
+    shutil.copy2(
+        os.path.join(PKG, "proxmox-redfish.service"), os.path.join(stage, "lib/systemd/system/proxmox-redfish.service")
+    )
     os.makedirs(os.path.join(stage, "etc/proxmox-redfish"))
     shutil.copy2(os.path.join(PKG, "params.env"), os.path.join(stage, "etc/proxmox-redfish/params.env"))
 
@@ -142,9 +152,7 @@ def main():
     with open(os.path.join(PKG, "control")) as fh:
         control = fh.read().replace("@VERSION@", version)
     # installed-size in KiB
-    total = sum(
-        os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(stage) for f in fs
-    )
+    total = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(stage) for f in fs)
     control += "Installed-Size: {}\n".format(max(1, total // 1024))
 
     def build_control(tar):
