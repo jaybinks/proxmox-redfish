@@ -22,6 +22,21 @@ case "$1" in
            [ -f /opt/proxmox-redfish/config/secureboot_profiles.json.example ]; then
             cp /opt/proxmox-redfish/config/secureboot_profiles.json.example "$ETC/secureboot_profiles.json"
         fi
+        # Stage the system OVMF varstore template as the blank image, so Redfish-native
+        # SecureBoot enrollment (POST certs -> build varstore -> dd) and the sb-off-blank
+        # profile work out of the box -- no manual file copy needed. Proxmox ships it via
+        # pve-edk2-firmware; fall back to the ovmf package path.
+        BLANK="$STATE/varstores/OVMF_VARS_4M.blank.fd"
+        if [ ! -f "$BLANK" ]; then
+            for tmpl in /usr/share/pve-edk2-firmware/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS_4M.fd; do
+                if [ -f "$tmpl" ]; then
+                    cp "$tmpl" "$BLANK" && chmod 0640 "$BLANK"
+                    echo "proxmox-redfish: staged blank OVMF varstore from $tmpl"
+                    break
+                fi
+            done
+        fi
+
         # Migrate a profile from a pre-0.2.7 install: varstore images moved from
         # /opt/proxmox-redfish/varstores to the canonical /var/lib/proxmox-redfish/
         # varstores (the path-allowlist dir). Rewrite stale image paths in place.

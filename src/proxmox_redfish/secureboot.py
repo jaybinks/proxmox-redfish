@@ -223,6 +223,11 @@ def apply_profile(proxmox: Any, vmid: int, profile_name: Optional[str]) -> hosto
     if not image_path:
         raise hostops.TemplateMissingError(f"Profile {profile_name!r} has no image_path")
     expected_sha = profile.get("image_sha256")
+    # The shipped example carries a placeholder; treat it (and blanks) as "no expected
+    # hash" so a profile is usable before an operator fills in a real sha256. The other
+    # integrity guards (allowlisted dir, regular file, size) still apply.
+    if not expected_sha or str(expected_sha).upper().startswith("REPLACE_WITH"):
+        expected_sha = None
     allow_autostop = os.getenv("REDFISH_SB_ALLOW_AUTOSTOP", "0") == "1"
 
     with hostops.stopped_vm_guard(proxmox, vmid, allow_autostop=allow_autostop):
