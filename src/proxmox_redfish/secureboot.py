@@ -30,16 +30,36 @@ NOT_HANDLED = object()
 
 Result = Union[Tuple[Dict[str, Any], int], object]
 
-# Standard UEFI Secure Boot databases we expose.
+# Writable UEFI Secure Boot databases (cert CRUD targets).
 SB_DATABASES: List[str] = ["PK", "KEK", "db", "dbx"]
+# Full set exposed in the collection (incl. read-only factory defaults + dbr/dbt).
+SB_DATABASES_ALL: List[str] = SB_DATABASES + [
+    "dbr",
+    "dbt",
+    "PKDefault",
+    "KEKDefault",
+    "dbDefault",
+    "dbxDefault",
+    "dbrDefault",
+    "dbtDefault",
+]
 _DB_NAMES = {
     "PK": "PK - Platform Key",
     "KEK": "KEK - Key Exchange Key Database",
     "db": "db - Authorized Signature Database",
     "dbx": "dbx - Forbidden Signature Database",
+    "dbr": "dbr - Recovery Signature Database",
+    "dbt": "dbt - Timestamp Signature Database",
+    "PKDefault": "PKDefault - Default Platform Key",
+    "KEKDefault": "KEKDefault - Default Key Exchange Key Database",
+    "dbDefault": "dbDefault - Default Authorized Signature Database",
+    "dbxDefault": "dbxDefault - Default Forbidden Signature Database",
+    "dbrDefault": "dbrDefault - Default Recovery Signature Database",
+    "dbtDefault": "dbtDefault - Default Timestamp Signature Database",
 }
 
 RESET_KEYS_TYPES = ["ResetAllKeysToDefault", "DeleteAllKeys", "DeletePK"]
+DB_RESET_KEYS_TYPES = ["ResetAllKeysToDefault", "DeleteAllKeys"]
 
 
 # --------------------------------------------------------------------------- #
@@ -291,15 +311,15 @@ def get_db_collection(vmid: int) -> Tuple[Dict[str, Any], int]:
             "@odata.id": base,
             "@odata.type": "#SecureBootDatabaseCollection.SecureBootDatabaseCollection",
             "Name": "UEFI SecureBoot Database Collection",
-            "Members@odata.count": len(SB_DATABASES),
-            "Members": [{"@odata.id": f"{base}/{dbid}"} for dbid in SB_DATABASES],
+            "Members@odata.count": len(SB_DATABASES_ALL),
+            "Members": [{"@odata.id": f"{base}/{dbid}"} for dbid in SB_DATABASES_ALL],
         },
         200,
     )
 
 
 def get_db(vmid: int, dbid: str) -> Tuple[Dict[str, Any], int]:
-    if dbid not in SB_DATABASES:
+    if dbid not in SB_DATABASES_ALL:
         return (
             {
                 "error": {
@@ -310,14 +330,59 @@ def get_db(vmid: int, dbid: str) -> Tuple[Dict[str, Any], int]:
             404,
         )
     base = f"/redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}"
+    body: Dict[str, Any] = {
+        "@odata.id": base,
+        "@odata.type": "#SecureBootDatabase.v1_0_2.SecureBootDatabase",
+        "Id": dbid,
+        "Name": _DB_NAMES[dbid],
+        "DatabaseId": dbid,
+        "Certificates": {"@odata.id": f"{base}/Certificates"},
+        "Signatures": {"@odata.id": f"{base}/Signatures"},
+    }
+    # Writable databases advertise the per-database ResetKeys action.
+    if dbid in SB_DATABASES:
+        body["Actions"] = {
+            "#SecureBootDatabase.ResetKeys": {
+                "target": f"{base}/Actions/SecureBootDatabase.ResetKeys",
+                "ResetKeysType@Redfish.AllowableValues": DB_RESET_KEYS_TYPES,
+            }
+        }
+    return body, 200
+
+
+def get_signatures_collection(vmid: int, dbid: str) -> Tuple[Dict[str, Any], int]:
+    if dbid not in SB_DATABASES_ALL:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"db {dbid} not found"}}, 404)
+    base = f"/redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}/Signatures"
     return (
         {
             "@odata.id": base,
-            "@odata.type": "#SecureBootDatabase.v1_0_2.SecureBootDatabase",
-            "Id": dbid,
-            "Name": _DB_NAMES[dbid],
-            "DatabaseId": dbid,
-            "Certificates": {"@odata.id": f"{base}/Certificates"},
+            "@odata.type": "#SignatureCollection.SignatureCollection",
+            "Name": f"{dbid} Signature Collection",
+            "Members@odata.count": 0,
+            "Members": [],
+        },
+        200,
+    )
+
+
+def db_reset_keys(vmid: int, dbid: str, data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+    """Per-database SecureBootDatabase.ResetKeys: clears this db's staged certs."""
+    if dbid not in SB_DATABASES:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"db {dbid} not found"}}, 404)
+    reset_type = data.get("ResetKeysType") if isinstance(data, dict) else None
+    if reset_type not in DB_RESET_KEYS_TYPES:
+        return _value_error(f"ResetKeysType {reset_type!r} not in {DB_RESET_KEYS_TYPES}.", "ResetKeysType")
+    import shutil
+
+    shutil.rmtree(_certs_dir(vmid, dbid), ignore_errors=True)
+    return (
+        {
+            "@odata.type": "#Message.v1_1_1.Message",
+            "MessageId": "Base.1.0.Success",
+            "Message": f"SecureBootDatabase.ResetKeys ({reset_type}) cleared staged certs for {dbid}.",
+            "MessageSeverity": "OK",
+            "Resolution": "None",
         },
         200,
     )
@@ -511,6 +576,8 @@ def route_get(proxmox: Any, parts: List[str]) -> Result:
         return get_db(vmid, parts[7])
     if len(parts) == 9 and parts[6] == "SecureBootDatabases" and parts[8] == "Certificates":
         return get_cert_collection(vmid, parts[7])
+    if len(parts) == 9 and parts[6] == "SecureBootDatabases" and parts[8] == "Signatures":
+        return get_signatures_collection(vmid, parts[7])
     if len(parts) == 10 and parts[6] == "SecureBootDatabases" and parts[8] == "Certificates":
         return get_cert(vmid, parts[7], parts[9])
     return NOT_HANDLED
@@ -541,6 +608,14 @@ def route_post(proxmox: Any, parts: List[str], data: Dict[str, Any]) -> Result:
     # POST .../SecureBootDatabases/{db}/Certificates
     if len(parts) == 9 and parts[6] == "SecureBootDatabases" and parts[8] == "Certificates":
         return add_cert(vmid, parts[7], data)
+    # POST .../SecureBootDatabases/{db}/Actions/SecureBootDatabase.ResetKeys
+    if (
+        len(parts) == 10
+        and parts[6] == "SecureBootDatabases"
+        and parts[8] == "Actions"
+        and parts[9] == "SecureBootDatabase.ResetKeys"
+    ):
+        return db_reset_keys(vmid, parts[7], data)
     return NOT_HANDLED
 
 

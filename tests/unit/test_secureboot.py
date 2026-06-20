@@ -208,21 +208,51 @@ class TestResetKeys:
 # Databases
 # --------------------------------------------------------------------------- #
 class TestDatabases:
-    def test_collection_has_four_members(self):
+    def test_collection_exposes_full_set(self):
         body, status = secureboot.get_db_collection(100)
         assert status == 200
-        assert body["Members@odata.count"] == 4
+        assert body["Members@odata.count"] == len(secureboot.SB_DATABASES_ALL)
         ids = [m["@odata.id"].split("/")[-1] for m in body["Members"]]
-        assert ids == ["PK", "KEK", "db", "dbx"]
+        assert ids[:4] == ["PK", "KEK", "db", "dbx"]
+        assert "PKDefault" in ids and "dbr" in ids
 
-    def test_get_db_valid(self):
+    def test_get_db_valid_writable_has_actions(self):
         body, status = secureboot.get_db(100, "db")
         assert status == 200
         assert body["DatabaseId"] == "db"
         assert body["@odata.type"] == "#SecureBootDatabase.v1_0_2.SecureBootDatabase"
+        assert body["Signatures"]["@odata.id"].endswith("/Signatures")
+        assert "#SecureBootDatabase.ResetKeys" in body["Actions"]
+
+    def test_get_db_default_is_readonly(self):
+        body, status = secureboot.get_db(100, "dbDefault")
+        assert status == 200
+        assert "Actions" not in body  # factory default, not writable
 
     def test_get_db_invalid_404(self):
         body, status = secureboot.get_db(100, "bogus")
+        assert status == 404
+
+    def test_signatures_collection_empty(self):
+        body, status = secureboot.get_signatures_collection(100, "dbx")
+        assert status == 200 and body["Members@odata.count"] == 0
+
+    def test_db_reset_keys_clears_staged(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("REDFISH_SB_STATE_DIR", str(tmp_path))
+        secureboot.add_cert(100, "db", {"CertificateString": "x"})  # rejected pre-store, ok
+        body, status = secureboot.db_reset_keys(100, "db", {"ResetKeysType": "DeleteAllKeys"})
+        assert status == 200
+        coll, _ = secureboot.get_cert_collection(100, "db")
+        assert coll["Members@odata.count"] == 0
+
+    def test_db_reset_keys_bad_type(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("REDFISH_SB_STATE_DIR", str(tmp_path))
+        body, status = secureboot.db_reset_keys(100, "db", {"ResetKeysType": "Nope"})
+        assert status == 400
+
+    def test_db_reset_keys_readonly_db_404(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("REDFISH_SB_STATE_DIR", str(tmp_path))
+        _, status = secureboot.db_reset_keys(100, "dbDefault", {"ResetKeysType": "DeleteAllKeys"})
         assert status == 404
 
 
@@ -261,7 +291,10 @@ class TestRouterDispatch:
     def test_route_get_db_collection(self):
         parts = ["", "redfish", "v1", "Systems", "100", "SecureBoot", "SecureBootDatabases"]
         body, status = secureboot.route_get(object(), parts)
-        assert status == 200 and body["Members@odata.count"] == 4
+        assert status == 200 and body["Members@odata.count"] == len(secureboot.SB_DATABASES_ALL)
+        ids = [m["@odata.id"].split("/")[-1] for m in body["Members"]]
+        for writable in ("PK", "KEK", "db", "dbx"):
+            assert writable in ids
 
     def test_route_get_db_member(self):
         parts = ["", "redfish", "v1", "Systems", "100", "SecureBoot", "SecureBootDatabases", "PK"]

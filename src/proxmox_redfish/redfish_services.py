@@ -10,9 +10,12 @@ Absent rather than omitted, so a conformance crawler finds a complete tree. No
 import cycle; reads its node name from the environment.
 """
 
+import logging
 import os
 import re
 from typing import Any, Dict, Tuple
+
+logger = logging.getLogger("proxmox-redfish.services")
 
 PROXMOX_NODE = os.getenv("PROXMOX_NODE", "pve")
 
@@ -229,6 +232,9 @@ def build_event_service() -> Dict[str, Any]:
         "EventFormatTypes": ["Event"],
         "ResourceTypes": ["ComputerSystem", "SecureBoot", "Manager"],
         "Subscriptions": {"@odata.id": "/redfish/v1/EventService/Subscriptions"},
+        "Actions": {
+            "#EventService.SubmitTestEvent": {"target": "/redfish/v1/EventService/Actions/EventService.SubmitTestEvent"}
+        },
     }
 
 
@@ -345,3 +351,142 @@ def build_json_schemas() -> Dict[str, Any]:
         "Members@odata.count": 0,
         "Members": [],
     }
+
+
+# --------------------------------------------------------------------------- #
+# CertificateService (the daemon's own TLS certificate)
+# --------------------------------------------------------------------------- #
+def build_certificate_service() -> Dict[str, Any]:
+    return {
+        "@odata.id": "/redfish/v1/CertificateService",
+        "@odata.type": "#CertificateService.v1_0_4.CertificateService",
+        "Id": "CertificateService",
+        "Name": "Certificate Service",
+        "CertificateLocations": {"@odata.id": "/redfish/v1/CertificateService/CertificateLocations"},
+    }
+
+
+def build_certificate_locations() -> Dict[str, Any]:
+    cert_file = os.getenv("SSL_CERT_FILE", "")
+    members = []
+    if cert_file:
+        members.append({"@odata.id": "/redfish/v1/Managers/redfish/NetworkProtocol/HTTPS/Certificates/1"})
+    return {
+        "@odata.id": "/redfish/v1/CertificateService/CertificateLocations",
+        "@odata.type": "#CertificateLocations.v1_0_2.CertificateLocations",
+        "Id": "CertificateLocations",
+        "Name": "Certificate Locations",
+        "Links": {"Certificates": members, "Certificates@odata.count": len(members)},
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Account mutation (opt-in; Proxmox owns identity)
+# --------------------------------------------------------------------------- #
+def account_mutation_enabled() -> bool:
+    return os.getenv("REDFISH_ALLOW_ACCOUNT_MUTATION", "0") == "1"
+
+
+def _mutation_disabled_error() -> Tuple[Dict[str, Any], int]:
+    return (
+        {
+            "error": {
+                "code": "Base.1.0.ActionNotSupported",
+                "message": "Account mutation is disabled (set REDFISH_ALLOW_ACCOUNT_MUTATION=1).",
+            }
+        },
+        405,
+    )
+
+
+def create_account(proxmox: Any, data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+    if not account_mutation_enabled():
+        return _mutation_disabled_error()
+    if not isinstance(data, dict) or not data.get("UserName") or not data.get("Password"):
+        return (
+            {"error": {"code": "Base.1.0.PropertyValueNotInList", "message": "UserName and Password are required."}},
+            400,
+        )
+    userid = str(data["UserName"])
+    if "@" not in userid:
+        userid += "@pam"
+    try:
+        proxmox.access.users.post(userid=userid, password=str(data["Password"]))
+    except Exception as exc:  # noqa: BLE001
+        return ({"error": {"code": "Base.1.0.GeneralError", "message": f"Account create failed: {exc}"}}, 500)
+    body, _ = build_account(proxmox, _account_id(userid))
+    return body, 201
+
+
+def delete_account(proxmox: Any, account_id: str) -> Tuple[Dict[str, Any], int]:
+    if not account_mutation_enabled():
+        return _mutation_disabled_error()
+    try:
+        users = proxmox.access.users.get() or []
+    except Exception:  # noqa: BLE001
+        users = []
+    match = next((u for u in users if _account_id(u.get("userid", "")) == account_id), None)
+    if not match:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": "account not found"}}, 404)
+    try:
+        proxmox.access.users(match["userid"]).delete()
+    except Exception as exc:  # noqa: BLE001
+        return ({"error": {"code": "Base.1.0.GeneralError", "message": f"Account delete failed: {exc}"}}, 500)
+    return {}, 204
+
+
+# --------------------------------------------------------------------------- #
+# Event delivery
+# --------------------------------------------------------------------------- #
+def emit_event(message_id: str, message: str, severity: str = "OK") -> int:
+    """
+    Deliver a Redfish event to every subscription (best-effort, short timeout).
+    Returns the number of successful deliveries. Never raises.
+    """
+    if not subscriptions:
+        return 0
+    import requests
+
+    payload = {
+        "@odata.type": "#Event.v1_7_0.Event",
+        "Id": message_id,
+        "Name": "Event",
+        "Events": [
+            {
+                "EventType": "Other",
+                "MessageId": message_id,
+                "Message": message,
+                "MessageSeverity": severity,
+            }
+        ],
+    }
+    delivered = 0
+    for sid, sub in list(subscriptions.items()):
+        body = dict(payload)
+        if sub.get("Context"):
+            body["Context"] = sub["Context"]
+        try:
+            resp = requests.post(sub["Destination"], json=body, timeout=5, verify=False)  # nosec B501
+            if 200 <= resp.status_code < 300:
+                delivered += 1
+        except Exception as exc:  # noqa: BLE001 - delivery is best-effort
+            logger.warning("Event delivery to %s failed: %s", sid, exc)
+    return delivered
+
+
+def submit_test_event(data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+    """EventService.SubmitTestEvent: deliver a test event to all subscribers."""
+    message_id = (data or {}).get("MessageId", "Base.1.0.TestMessage")
+    message = (data or {}).get("Message", "Test event")
+    severity = (data or {}).get("MessageSeverity", "OK")
+    delivered = emit_event(message_id, message, severity)
+    return (
+        {
+            "@odata.type": "#Message.v1_1_1.Message",
+            "MessageId": "Base.1.0.Success",
+            "Message": f"Test event submitted; delivered to {delivered} subscriber(s).",
+            "MessageSeverity": "OK",
+            "Resolution": "None",
+        },
+        200,
+    )

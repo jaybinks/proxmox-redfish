@@ -136,3 +136,92 @@ class TestMisc:
     def test_registries_and_jsonschemas(self):
         assert rs.build_registries()["Members@odata.count"] == 0
         assert rs.build_json_schemas()["Members@odata.count"] == 0
+
+    def test_certificate_service(self, monkeypatch):
+        monkeypatch.setenv("SSL_CERT_FILE", "/x/server.crt")
+        svc = rs.build_certificate_service()
+        assert svc["Id"] == "CertificateService"
+        loc = rs.build_certificate_locations()
+        assert loc["Links"]["Certificates@odata.count"] == 1
+
+
+class TestAccountMutation:
+    def test_create_disabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("REDFISH_ALLOW_ACCOUNT_MUTATION", raising=False)
+        _, code = rs.create_account(MagicMock(), {"UserName": "x", "Password": "y"})
+        assert code == 405
+
+    def test_create_enabled(self, monkeypatch):
+        monkeypatch.setenv("REDFISH_ALLOW_ACCOUNT_MUTATION", "1")
+        proxmox = _proxmox(users=[{"userid": "new@pam", "enable": 1}])
+        body, code = rs.create_account(proxmox, {"UserName": "new", "Password": "secret"})
+        assert code == 201
+        proxmox.access.users.post.assert_called_once()
+        assert proxmox.access.users.post.call_args.kwargs["userid"] == "new@pam"
+
+    def test_create_missing_fields(self, monkeypatch):
+        monkeypatch.setenv("REDFISH_ALLOW_ACCOUNT_MUTATION", "1")
+        _, code = rs.create_account(MagicMock(), {"UserName": "x"})
+        assert code == 400
+
+    def test_delete_enabled(self, monkeypatch):
+        monkeypatch.setenv("REDFISH_ALLOW_ACCOUNT_MUTATION", "1")
+        proxmox = _proxmox(users=[{"userid": "gone@pam"}])
+        _, code = rs.delete_account(proxmox, "gone_pam")
+        assert code == 204
+
+    def test_delete_disabled(self, monkeypatch):
+        monkeypatch.delenv("REDFISH_ALLOW_ACCOUNT_MUTATION", raising=False)
+        _, code = rs.delete_account(MagicMock(), "gone_pam")
+        assert code == 405
+
+
+class TestEventDelivery:
+    def setup_method(self):
+        rs.subscriptions.clear()
+
+    def test_emit_no_subscribers(self):
+        assert rs.emit_event("Base.1.0.TestMessage", "hi") == 0
+
+    def test_emit_delivers_to_subscribers(self, monkeypatch):
+        rs.subscriptions["s1"] = {"Destination": "https://a/ev", "Context": "ctx"}
+        rs.subscriptions["s2"] = {"Destination": "https://b/ev"}
+        calls = []
+
+        class FakeResp:
+            status_code = 204
+
+        def fake_post(url, json=None, timeout=None, verify=None):
+            calls.append((url, json))
+            return FakeResp()
+
+        import requests
+
+        monkeypatch.setattr(requests, "post", fake_post)
+        delivered = rs.emit_event("Base.1.0.TestMessage", "hello", "Warning")
+        assert delivered == 2
+        # context echoed to s1
+        assert any(j.get("Context") == "ctx" for _, j in calls)
+
+    def test_submit_test_event(self, monkeypatch):
+        rs.subscriptions["s1"] = {"Destination": "https://a/ev"}
+
+        class FakeResp:
+            status_code = 200
+
+        import requests
+
+        monkeypatch.setattr(requests, "post", lambda *a, **k: FakeResp())
+        body, code = rs.submit_test_event({"Message": "t"})
+        assert code == 200 and "1 subscriber" in body["Message"]
+
+    def test_emit_tolerates_delivery_failure(self, monkeypatch):
+        rs.subscriptions["s1"] = {"Destination": "https://a/ev"}
+
+        import requests
+
+        def boom(*a, **k):
+            raise requests.RequestException("down")
+
+        monkeypatch.setattr(requests, "post", boom)
+        assert rs.emit_event("X", "y") == 0  # no raise

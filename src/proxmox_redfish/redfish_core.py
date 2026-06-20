@@ -59,6 +59,7 @@ def build_service_root() -> Dict[str, Any]:
         "AccountService": {"@odata.id": "/redfish/v1/AccountService"},
         "EventService": {"@odata.id": "/redfish/v1/EventService"},
         "UpdateService": {"@odata.id": "/redfish/v1/UpdateService"},
+        "CertificateService": {"@odata.id": "/redfish/v1/CertificateService"},
         "Registries": {"@odata.id": "/redfish/v1/Registries"},
         "JsonSchemas": {"@odata.id": "/redfish/v1/JsonSchemas"},
         "Links": {"Sessions": {"@odata.id": "/redfish/v1/SessionService/Sessions"}},

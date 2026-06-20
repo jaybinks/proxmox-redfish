@@ -1753,9 +1753,13 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     response = redfish_services.build_subscriptions_collection()
                 elif len(parts) == 6 and parts[3] == "EventService" and parts[4] == "Subscriptions":
                     response, status_code = redfish_services.build_subscription(parts[5])
-                # --- UpdateService / discovery -------------------------------------
+                # --- UpdateService / CertificateService / discovery ----------------
                 elif path == "/redfish/v1/UpdateService":
                     response = redfish_services.build_update_service()
+                elif path == "/redfish/v1/CertificateService":
+                    response = redfish_services.build_certificate_service()
+                elif path == "/redfish/v1/CertificateService/CertificateLocations":
+                    response = redfish_services.build_certificate_locations()
                 elif path == "/redfish/v1/Registries":
                     response = redfish_services.build_registries()
                 elif path == "/redfish/v1/JsonSchemas":
@@ -1919,16 +1923,16 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                                     ],
                                 }
                             }
-                    elif (
-                        path.startswith("/redfish/v1/Systems/")
-                        and "/VirtualMedia/CDROM/Actions/VirtualMedia.InsertMedia" in path
+                    elif path.startswith("/redfish/v1/Systems/") and (
+                        "/VirtualMedia/CDROM/Actions/VirtualMedia.InsertMedia" in path
+                        or "/VirtualMedia/Cd/Actions/VirtualMedia.InsertMedia" in path
                     ):
                         vm_id = int(path.split("/")[4])
                         iso_path = data.get("Image")
                         response, status_code = manage_virtual_media(proxmox, vm_id, "InsertMedia", iso_path)
-                    elif (
-                        path.startswith("/redfish/v1/Systems/")
-                        and "/VirtualMedia/CDROM/Actions/VirtualMedia.EjectMedia" in path
+                    elif path.startswith("/redfish/v1/Systems/") and (
+                        "/VirtualMedia/CDROM/Actions/VirtualMedia.EjectMedia" in path
+                        or "/VirtualMedia/Cd/Actions/VirtualMedia.EjectMedia" in path
                     ):
                         vm_id = int(path.split("/")[4])
                         response, status_code = manage_virtual_media(proxmox, vm_id, "EjectMedia")
@@ -1956,6 +1960,10 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         response, status_code = update_vm_config(proxmox, vm_id, config_data)
                     elif path == "/redfish/v1/EventService/Subscriptions":
                         response, status_code = redfish_services.create_subscription(data)
+                    elif path == "/redfish/v1/EventService/Actions/EventService.SubmitTestEvent":
+                        response, status_code = redfish_services.submit_test_event(data)
+                    elif path == "/redfish/v1/AccountService/Accounts":
+                        response, status_code = redfish_services.create_account(proxmox, data)
                     elif "/SecureBoot/" in path and secureboot.is_secureboot_path(path.rstrip("/").split("/")):
                         sb_parts = path.rstrip("/").split("/")
                         result = secureboot.route_post(proxmox, sb_parts, data)
@@ -2377,6 +2385,9 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
             response, status_code = redfish_core.delete_session(parts[5], sessions)
         elif path.startswith("/redfish/v1/EventService/Subscriptions/") and len(parts) == 6:
             response, status_code = redfish_services.delete_subscription(parts[5])
+        elif path.startswith("/redfish/v1/AccountService/Accounts/") and len(parts) == 6:
+            proxmox = get_proxmox_api(self.headers)
+            response, status_code = redfish_services.delete_account(proxmox, parts[5])
         elif secureboot.is_secureboot_path(parts):
             proxmox = get_proxmox_api(self.headers)
             result = secureboot.route_delete(proxmox, parts)
