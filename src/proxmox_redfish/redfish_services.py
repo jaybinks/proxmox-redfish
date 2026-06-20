@@ -10,14 +10,76 @@ Absent rather than omitted, so a conformance crawler finds a complete tree. No
 import cycle; reads its node name from the environment.
 """
 
+import ipaddress
 import logging
 import os
 import re
-from typing import Any, Dict, Tuple
+import socket
+from typing import Any, Dict, Tuple, Union
+from urllib.parse import urlparse
 
 logger = logging.getLogger("proxmox-redfish.services")
 
 PROXMOX_NODE = os.getenv("PROXMOX_NODE", "pve")
+
+
+# Allow event delivery to internal/loopback/link-local targets only when the admin
+# explicitly opts in. By default such destinations are blocked (SSRF defense): an
+# authenticated caller must not be able to make the root daemon POST to the cloud
+# metadata service (169.254.169.254), localhost services (Proxmox API on :8006), or
+# RFC1918 hosts behind the daemon.
+def _allow_internal_event_targets() -> bool:
+    return os.getenv("REDFISH_EVENT_ALLOW_INTERNAL", "0") == "1"
+
+
+def _is_blocked_ip(ip: "Union[ipaddress.IPv4Address, ipaddress.IPv6Address]") -> bool:
+    return bool(
+        ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved or ip.is_private
+    )
+
+
+def validate_event_destination(dest: str) -> Tuple[bool, str]:
+    """
+    SSRF guard for an event Destination URL. Returns (ok, reason).
+
+    Enforces http(s) only and, unless REDFISH_EVENT_ALLOW_INTERNAL=1, rejects
+    destinations that resolve to loopback/link-local/private/reserved addresses.
+    """
+    parsed = urlparse(dest)
+    if parsed.scheme not in ("http", "https"):
+        return False, "Destination must be an http(s) URL."
+    host = parsed.hostname
+    if not host:
+        return False, "Destination has no host."
+    if _allow_internal_event_targets():
+        return True, "ok"
+    # A literal internal IP is rejected outright. For a hostname, reject only when it
+    # *resolves* to an internal address; an unresolvable host is allowed (delivery
+    # will simply fail later and cannot reach an internal service).
+    try:
+        literal_ip = ipaddress.ip_address(host)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None:
+        if _is_blocked_ip(literal_ip):
+            return False, (
+                "Destination resolves to a non-routable/internal address; "
+                "set REDFISH_EVENT_ALLOW_INTERNAL=1 to allow."
+            )
+        return True, "ok"
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+        candidates = [ipaddress.ip_address(info[4][0]) for info in infos]
+    except (socket.gaierror, ValueError, UnicodeError):
+        return True, "ok"  # unresolvable -> cannot reach an internal target
+    for ip in candidates:
+        if _is_blocked_ip(ip):
+            return False, (
+                "Destination resolves to a non-routable/internal address; "
+                "set REDFISH_EVENT_ALLOW_INTERNAL=1 to allow."
+            )
+    return True, "ok"
+
 
 ODATA = {
     "ChassisCollection": "#ChassisCollection.ChassisCollection",
@@ -37,6 +99,10 @@ ODATA = {
 
 # In-memory event subscriptions (process-local; mirrors the session store pattern).
 subscriptions: Dict[str, Dict[str, Any]] = {}
+
+# Upper bound on stored subscriptions to keep the in-memory store from growing
+# without limit (DoS defense).
+MAX_SUBSCRIPTIONS = int(os.getenv("REDFISH_MAX_SUBSCRIPTIONS", "128"))
 
 # Standard Redfish role ids exposed (read-only).
 _ROLES = {
@@ -395,10 +461,12 @@ def create_subscription(data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
             400,
         )
     dest = str(data["Destination"])
-    # Only allow http(s) destinations (no file:// / arbitrary schemes).
-    if not re.match(r"^https?://", dest):
+    # Only allow http(s) destinations (no file:// / arbitrary schemes) and block
+    # internal/metadata targets (SSRF) unless the admin explicitly opted in.
+    ok, reason = validate_event_destination(dest)
+    if not ok:
         return (
-            {"error": {"code": "Base.1.0.PropertyValueNotInList", "message": "Destination must be http(s)."}},
+            {"error": {"code": "Base.1.0.PropertyValueNotInList", "message": reason}},
             400,
         )
     # Reject conflicting/unsupported Protocol values (only Redfish is supported).
@@ -416,6 +484,18 @@ def create_subscription(data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
     import hashlib
 
     sid = hashlib.sha256(dest.encode("utf-8")).hexdigest()[:12]
+    # Bound the store: a brand-new destination is refused once the cap is reached
+    # (re-subscribing an existing destination is idempotent and always allowed).
+    if sid not in subscriptions and len(subscriptions) >= MAX_SUBSCRIPTIONS:
+        return (
+            {
+                "error": {
+                    "code": "Base.1.0.GeneralError",
+                    "message": "Maximum number of event subscriptions reached.",
+                }
+            },
+            507,
+        )
     subscriptions[sid] = {
         "Destination": dest,
         "Protocol": data.get("Protocol", "Redfish"),
@@ -575,13 +655,22 @@ def emit_event(message_id: str, message: str, severity: str = "OK") -> int:
             }
         ],
     }
+    # TLS verification for event delivery (default on). An admin who terminates
+    # against a self-signed receiver can opt out with REDFISH_EVENT_VERIFY=false.
+    verify = os.getenv("REDFISH_EVENT_VERIFY", "true").lower() == "true"
     delivered = 0
     for sid, sub in list(subscriptions.items()):
+        # Re-validate at delivery time (defends against DNS rebinding between the
+        # subscribe call and the actual POST).
+        ok, reason = validate_event_destination(str(sub.get("Destination", "")))
+        if not ok:
+            logger.warning("Event delivery to %s skipped: %s", sid, reason)
+            continue
         body = dict(payload)
         if sub.get("Context"):
             body["Context"] = sub["Context"]
         try:
-            resp = requests.post(sub["Destination"], json=body, timeout=5, verify=False)  # nosec B501
+            resp = requests.post(sub["Destination"], json=body, timeout=5, verify=verify)
             if 200 <= resp.status_code < 300:
                 delivered += 1
         except Exception as exc:  # noqa: BLE001 - delivery is best-effort

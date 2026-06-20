@@ -13,12 +13,16 @@ mypy>=1.0.0
 types-requests>=2.25.0
 
 # Security
-bandit>=1.7.0
+bandit>=1.7.7
+pip-audit>=2.7.0
 safety>=2.3.0
 
 # Build tools
 build>=0.10.0
 twine>=4.0.0
+# setuptools 78.1.1+ clears CVE-2024-6345 (RCE via package index) and PYSEC-2025-49
+# (path traversal); pin a safe floor for the build/dev environment.
+setuptools>=78.1.1
 
 # Documentation
 sphinx>=6.0.0
