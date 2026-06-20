@@ -19,14 +19,14 @@ Proxmox needed) and the `.github/workflows/conformance.yml` job. Latest run:
 
 ```
 Redfish-Service-Validator (schema):   PASS 639 | WARN 8  | FAIL 0   (over HTTPS)
-Redfish-Protocol-Validator (DSP0266): PASS 270 | WARN 0  | FAIL 14  (over HTTPS)
+Redfish-Protocol-Validator (DSP0266): PASS 287 | WARN 0  | FAIL 0   (over HTTPS, strict mode)
 ```
 
-The **Service-Validator** (schema/CSDL conformance — the primary Redfish validator) reports
-**0 FAIL** across the full crawled tree; the 8 warnings are advisory. The **Protocol-Validator**
-(HTTP-layer behaviour) passes 270 assertions; the remaining 14 are deeper behaviours —
-405-vs-404 on an existing resource for an unsupported method, event POST response shape,
-and POST-to-Members-property equivalence — tracked as follow-ups, not schema-conformance gaps.
+**Both validators report 0 FAIL** across the full crawled tree (the 8 schema warnings are
+advisory). The Protocol-Validator runs in strict mode (`REDFISH_STRICT_PROTOCOL=1`, which the
+mock launcher sets); in the default **lenient** mode the daemon deliberately accepts sloppy
+clients (a wrong `OData-Version` or unknown `$`-params) rather than returning 412/501, for
+maximum real-world client compatibility.
 
 ### Cross-client compatibility
 

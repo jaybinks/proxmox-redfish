@@ -1,269 +1,268 @@
 # Proxmox Redfish Daemon
 
-[![CI/CD Pipeline](https://github.com/v1k0d3n/proxmox-redfish/workflows/CI%2FCD%20Pipeline/badge.svg)](https://github.com/v1k0d3n/proxmox-redfish/actions)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](https://github.com/v1k0d3n/proxmox-redfish/actions)[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![DMTF Service-Validator](https://img.shields.io/badge/Service--Validator-639%20PASS%20%2F%200%20FAIL-brightgreen.svg)](RedFishSpecCompliance.md)
+[![DMTF Protocol-Validator](https://img.shields.io/badge/Protocol--Validator-287%20PASS%20%2F%200%20FAIL-brightgreen.svg)](RedFishSpecCompliance.md)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Packaging](https://img.shields.io/badge/install-.deb-blue.svg)](packaging/README.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.1.0-blue.svg)](https://github.com/v1k0d3n/proxmox-redfish/releases/tag/v0.1.0)
 
-A Redfish API daemon for managing Proxmox VMs, providing a standardized interface for VM operations through the Redfish protocol. This enables integration with tools like Metal3, Ironic, OpenShift ACM ZTP/GitOps, and other Redfish-compatible management solutions.
+A **DMTF Redfish API daemon for Proxmox VE** that exposes each VM as a Redfish-managed
+"bare-metal" node: power control, virtual media, boot-device override, UEFI/BIOS firmware
+mode, and full **UEFI Secure Boot key management**. It lets Proxmox VMs be driven by the
+same tooling used for physical servers — **Metal3, OpenStack Ironic, sushy, and OpenShift
+ZTP / ACM GitOps** — through the standard Redfish protocol.
+
+> This is a substantially extended fork of [`v1k0d3n/proxmox-redfish`](https://github.com/v1k0d3n/proxmox-redfish)
+> by Brandon B. Jozsa. It builds on that foundation to reach **full DMTF spec coverage**,
+> adds **Secure Boot enrollment**, **Debian packaging**, and **remote logging**, and now
+> passes both official DMTF validators with **0 FAIL**. See [Acknowledgements](#acknowledgements).
+
+## Highlights
+
+- ✅ **Passes the DMTF Redfish-Service-Validator** (schema/CSDL conformance): **639 PASS / 0 FAIL** over HTTPS.
+- ✅ **Passes the DMTF Redfish-Protocol-Validator** (DSP0266 HTTP behaviour): **287 PASS / 0 FAIL** over HTTPS.
+- 🤝 **Cross-client compatible** — verified against OpenStack **sushy**, DMTF **python-redfish-library**, and DMTF **redfishtool**.
+- 🔐 **UEFI Secure Boot enrollment** — enroll custom PK/KEK/db keys via Redfish, applied to a host-side OVMF varstore.
+- 📦 **Ships as a `.deb`** — depends only on packages already present on a Proxmox VE host; no venv, no pip, no network.
+- 📡 **Remote logging to Grafana Loki** — OS-independent structured log push.
+- 🔁 **Full Redfish surface** — Systems, Chassis, Managers, Tasks, Sessions, Accounts, Events, Update, and Certificate services.
 
 ## Table of Contents
-- [Prerequisites](#prerequisites)
-- [System Requirements](#system-requirements)
-- [Quick Start Guide](#quick-start-guide)
-   - [Installation](#installation)
-   - [Using a Least-Privilege Service Account](#using-a-least-privilege-service-account)
-- [Advanced Documentation](#advanced-documentation)
-- [Validation Testing and Troubleshooting](#validation-testing-and-troubleshooting)
-   - [Common Issues](#common-issues)
-   - [Getting Help](#getting-help)
-- [Security Notes](#security-notes)
+
+- [Install — Debian package (recommended)](#install--debian-package-recommended)
+- [Install — from source (development)](#install--from-source-development)
+- [Configuration](#configuration)
+- [Redfish API coverage](#redfish-api-coverage)
+- [Secure Boot](#secure-boot)
+- [Remote logging (Grafana Loki)](#remote-logging-grafana-loki)
+- [Documentation](#documentation)
+- [Acknowledgements](#acknowledgements)
 - [License](#license)
-- [Contributing](#contributing)
 
-## Prerequisites
+## Install — Debian package (recommended)
 
-- Proxmox VE 7.0 or higher
-- Root access to your Proxmox host
-- Internet connection for downloading dependencies
+The primary, supported install method is a Debian package. It runs on the system
+`python3` that Proxmox VE already ships (3.11), using the apt-provided
+`python3-requests` and `python3-cryptography` — **no virtualenv, no pip, no network access
+required on the host**.
 
-## System Requirements
+**1. Build the `.deb`** (on your workstation — macOS or Linux, no `dpkg` needed):
 
-- **Proxmox VE**: 7.0 or higher
-- **Python**: 3.8 or higher
-- **Memory**: 512MB RAM minimum
-- **Storage**: 100MB free space
-- **Network**: HTTP/HTTPS access to Proxmox API
+```bash
+make deb                  # -> dist/proxmox-redfish_<version>_all.deb
+make deb VERSION=0.3.0    # build a specific version
+```
 
-## Quick Start Guide
+`make deb` runs `packaging/build_deb.py`, which stages the tree, vendors the two
+pure-Python runtime deps (`proxmoxer`, `requests-toolbelt`) unpacked under `vendor/`,
+and writes the `.deb` archive directly. (`make deb-dpkg` uses `dpkg-deb` on hosts that
+have it.)
 
-This guide will take you from a fresh Proxmox installation to a fully working Redfish API daemon, even if you're not extremely comfortable with the Proxmox host-level Linux CLI.
+**2. Copy it to the Proxmox host and install:**
 
+```bash
+sudo apt install ./proxmox-redfish_<version>_all.deb
+# or:  sudo dpkg -i proxmox-redfish_<version>_all.deb
+```
 
-### Installation
+On install (`postinst`) the package creates `/var/lib/proxmox-redfish/{secureboot,varstores}`,
+generates a self-signed TLS cert in `/etc/proxmox-redfish/`, import-checks the app on the
+system interpreter, and enables (but does not start) the systemd service.
 
-1. Make sure to upgrade your system before beginning. **Open a web browser** and navigate to your Proxmox web interface:
+**3. Configure and start:**
 
-   ```bash
-   https://your-proxmox-ip:8006
-   ```
+```bash
+sudo editor /etc/proxmox-redfish/params.env   # set PROXMOX_HOST / USER / PASSWORD / NODE
+sudo systemctl start proxmox-redfish
+```
 
-2. Navigate to **Datacenter** > **YOUR-HYPERVISOR-HOSTNAME** > **Updates**, and click on **Refresh** to update your that host's packages.
+The endpoint is then available at:
 
-3. Connect to your Proxmox Hypervisor (example: **YOUR-HYPERVISOR-HOSTNAME**), with a user that has full administrative priveledges (example: `root`).
+```
+https://<host>:8443/redfish/v1
+```
 
-   ```bash
-   ssh root@YOUR-HYPERVISOR-HOSTNAME
-   ```
+**TLS notes.** TLS is **optional** and, when enabled (the default), **auto-reuses the
+Proxmox node certificate** (`/etc/pve/local/pve-ssl.{pem,key}`) — so the Redfish endpoint
+presents the *same identity* as the Proxmox API on `:8006`, with nothing to configure on a
+stock PVE host. You can instead bring your own cert (`SSL_CERT_FILE`/`SSL_KEY_FILE`), or
+disable TLS entirely with `REDFISH_USE_TLS="false"` to serve plain HTTP (e.g. behind a
+reverse proxy).
 
-4. Install Python and Dependencies
+**Runs as root** — Secure Boot enrollment writes the VM's efidisk LVM volume.
 
-   ```bash
-   # Update the system
-   apt update && apt upgrade -y
+**Clean removal:**
 
-   # Install Python 3 and pip
-   apt install -y python3 python3-pip python3-venv git jq
+```bash
+sudo apt remove proxmox-redfish    # stops the service, removes the app
+sudo apt purge  proxmox-redfish    # removes EVERY trace: /opt, /var/lib, /etc, unit
+```
 
-   # Install additional required packages
-   apt install -y git openssl curl
-   ```
+See [`packaging/README.md`](packaging/README.md) for the full installed layout, cert
+resolution order, and build internals.
 
-5. Download and Install the Redfish Daemon
+## Install — from source (development)
 
-   ```bash
-   # Clone the repository
-   git clone https://github.com/v1k0d3n/proxmox-redfish.git /opt/proxmox-redfish
+For development and testing:
 
-   # Create a virtual environment
-   cd /opt/proxmox-redfish
-   python3 -m venv venv
+```bash
+git clone https://github.com/v1k0d3n/proxmox-redfish.git
+cd proxmox-redfish
+python3 -m venv venv && source venv/bin/activate
+pip install -e .
+```
 
-   # Activate the virtual environment
-   source venv/bin/activate
+Then create a `config/params.env` from [`config/params.env.example`](config/params.env.example)
+and run the daemon directly. See the [Contributor Guide](docs/contrib/README.md) for the
+test suite and validator harness.
 
-   # Install the package
-   pip install -e .
-   ```
+## Configuration
 
-6. Optional (recommended): Generate basic SSL certificates - these can be valid certs, if you want to generate them a different way (below is primarily a working example)
+Configuration lives in `/etc/proxmox-redfish/params.env` (package install) or
+`config/params.env` (source install). Key variables:
 
-   **WARNING:** *For all you copy/paste warriors out there, be sure to check out the [Administrators Guide](./docs/admins/README.md#ssl-configuration) for better certificate options (including [Let's Encrypt](./docs/admins/README.md#lets-encrypt-certificate-production) options).*
-   ```bash
-   # Ensure this directory exists - it should already exists
-   mkdir -p /opt/proxmox-redfish/config/ssl
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PROXMOX_HOST` | `127.0.0.1` | Proxmox API host/IP. |
+| `PROXMOX_USER` | `root@pam` | Proxmox API user (fallback). |
+| `PROXMOX_PASSWORD` | `CHANGE_ME` | Proxmox API password (fallback). |
+| `PROXMOX_NODE` | `pve` | Proxmox node name. |
+| `PROXMOX_API_PORT` | `8006` | Proxmox API port. |
+| `VERIFY_SSL` | `false` | Verify TLS when talking *to* the Proxmox API. |
+| `REDFISH_USE_TLS` | `true` | Serve the Redfish endpoint over TLS (`false` = plain HTTP). |
+| `SSL_CERT_FILE` / `SSL_KEY_FILE` | *(empty)* | Bring-your-own cert; empty = auto-resolve the Proxmox node cert. |
+| `REDFISH_STRICT_PROTOCOL` | `0` | `0` = lenient (max client compatibility); `1` = strict DSP0266 (validator runs). |
+| `REDFISH_SB_ALLOW_WRITE` | `0` | Secure Boot writes are **dry-run** until set to `1`. |
+| `REDFISH_SB_PROFILES` | `…/secureboot_profiles.json` | Secure Boot enrollment profiles. |
+| `REDFISH_SB_VARSTORE_DIR` | `/var/lib/proxmox-redfish/varstores` | OVMF varstore working dir. |
+| `REDFISH_SB_VG_ALLOWLIST` | `pve` | LVM volume groups Secure Boot writes may touch. |
+| `REDFISH_AUTO_EFIDISK` | `1` | Auto-provision a 4 MB OVMF efidisk on `FirmwareMode=UEFI`. |
+| `REDFISH_LOKI_URL` | *(empty)* | Grafana Loki push URL (empty disables remote logging). |
+| `REDFISH_LOKI_LABELS` | `job=proxmox-redfish` | Loki stream labels. |
+| `REDFISH_LOKI_USER` / `REDFISH_LOKI_PASSWORD` / `REDFISH_LOKI_TENANT` | *(empty)* | Loki auth / multi-tenancy. |
+| `REDFISH_LOG_LEVEL` | `INFO` | Local log level (`DEBUG` for verbose). |
 
-   # Generate a self-signed certificate (for testing)
-   openssl req -x509 -newkey rsa:4096 -keyout /opt/proxmox-redfish/config/ssl/server.key -out /opt/proxmox-redfish/config/ssl/server.crt -days 365 -nodes -subj "/CN=$(hostname)"
+> **Credential pass-through.** A Redfish client authenticates to this daemon with HTTP
+> **Basic auth** (or a Redfish session). Those caller credentials are passed *through* to
+> Proxmox for the operation, so each Redfish user maps to a real Proxmox identity. The
+> `PROXMOX_USER`/`PROXMOX_PASSWORD` in `params.env` are a fallback. Use a
+> [least-privilege Proxmox service account](docs/admins/README.md) in production.
 
-   # Set proper permissions
-   chmod 600 /opt/proxmox-redfish/config/ssl/server.key
-   chmod 644 /opt/proxmox-redfish/config/ssl/server.crt
-   ```
+## Redfish API coverage
 
-7. Configure the proxmox-redfish daemon:
+The daemon implements the full provisioning-critical Redfish surface plus the surrounding
+service tree needed to crawl clean against the validators.
 
-   Create a configuration file:
-   ```bash
-   # Create the configuration file
-   cat > /opt/proxmox-redfish/config/params.env << 'EOF'
-   # Proxmox Configuration
-   PROXMOX_HOST="$(hostname -I | awk '{print $1}')"
-   PROXMOX_USER="root@pam"
-   PROXMOX_PASSWORD="your-proxmox-root-password"
-   PROXMOX_API_PORT="8006"
-   PROXMOX_NODE="$(hostname)"
-   PROXMOX_ISO_STORAGE="local"
+| Resource / Service | Methods | Status |
+|--------------------|---------|--------|
+| `ServiceRoot` (`/redfish/v1`) | GET | ✅ |
+| `SessionService` + `Sessions` (login / list / **logout**) | GET, POST, DELETE | ✅ |
+| `Systems` + `Systems/{id}` (inventory, power) | GET, PATCH | ✅ |
+| `…/Actions/ComputerSystem.Reset` (power control) | POST | ✅ |
+| Boot override (`BootSourceOverride*`) | PATCH | ✅ |
+| `…/Bios` (firmware mode: SeaBIOS / OVMF-UEFI) | GET, PATCH | ✅ |
+| `…/Processors`, `…/Storage`, `…/Memory`, `…/EthernetInterfaces` | GET | ✅ |
+| `…/LogServices` | GET | ✅ |
+| `…/SecureBoot` (+ `SecureBootDatabases`, `Certificates`, `ResetKeys`) | GET, PATCH, POST, DELETE | ✅ |
+| `Chassis` + per-VM member (`ChassisType: VirtualMachine`) | GET | ✅ |
+| `Managers/{id}` + `VirtualMedia/Cd` (insert / eject) | GET, POST | ✅ |
+| `TaskService` + `Tasks/{upid}` (Proxmox UPID → Redfish Task) | GET | ✅ |
+| `AccountService` + Accounts / Roles (Proxmox users + roles) | GET | ✅ |
+| `EventService` + Subscriptions | GET, POST, DELETE | ✅ |
+| `UpdateService` (reported `State: Absent` — VMs have no firmware surface) | GET | ✅ |
+| `CertificateService` | GET | ✅ |
 
-   # SSL Configuration
-   SSL_CERT_FILE="/opt/proxmox-redfish/config/ssl/server.crt"
-   SSL_KEY_FILE="/opt/proxmox-redfish/config/ssl/server.key"
+> Status reflects schema-clean, validator-crawled resources. Some inventory resources are
+> read-only and some (e.g. Chassis Power/Thermal) are synthetic because VMs have no physical
+> sensors — these are honestly marked `Oem.Proxmox.Synthetic`. See
+> [`RedFishSpecCompliance.md`](RedFishSpecCompliance.md) for the property-level matrix,
+> documented variances, and VM-specific exceptions.
 
-   # Logging Configuration
-   REDFISH_LOG_LEVEL="INFO"
-   REDFISH_LOGGING_ENABLED="true"
+**Validated by** — both official DMTF conformance tools, run over HTTPS, report **0 FAIL**:
 
-   # SSL Verification (for Proxmox API)
-   VERIFY_SSL="false"
-   EOF
-   ```
-   **Important**: Replace `your-proxmox-root-password` with your actual Proxmox root password.
+```
+Redfish-Service-Validator  (schema / CSDL):  PASS 639 | FAIL 0
+Redfish-Protocol-Validator (DSP0266 / HTTP): PASS 287 | FAIL 0
+```
 
-7. Create a systemd service unit (so we can run the proxmox-redfish daemon as a service)
+**Cross-client compatibility** — exercised in CI against three independent Redfish clients:
 
-   ```bash
-   # Create the systemd service file
-   cat > /etc/systemd/system/proxmox-redfish.service << 'EOF'
-   [Unit]
-   Description=Proxmox Redfish Daemon
-   After=network.target
+| Client | Result |
+|--------|--------|
+| OpenStack **sushy** (Ironic) | Connect, parse System / Boot / SecureBoot, drive `ComputerSystem.Reset` ✅ |
+| DMTF **python-redfish-library** (`redfish`) | Session login, GET ServiceRoot / Systems / SecureBoot ✅ |
+| DMTF **redfishtool** (CLI) | `Systems list` ✅ |
 
-   [Service]
-   Type=simple
-   User=root
-   Group=root
-   WorkingDirectory=/opt/proxmox-redfish
-   EnvironmentFile=/opt/proxmox-redfish/config/params.env
-   ExecStart=/opt/proxmox-redfish/venv/bin/python /opt/proxmox-redfish/src/proxmox_redfish/proxmox_redfish.py --port 8000
-   Restart=always
-   RestartSec=10
+The server runs in **lenient** protocol mode by default for maximum real-world client
+compatibility; set `REDFISH_STRICT_PROTOCOL=1` to enforce full DSP0266 (as used for the
+validator runs).
 
-   [Install]
-   WantedBy=multi-user.target
-   EOF
+## Secure Boot
 
-   # Ensure the following permissions on the service file
-   chmod 644 /etc/systemd/system/proxmox-redfish.service
+This fork adds first-class **UEFI Secure Boot key management** through the standard Redfish
+`SecureBoot` model:
 
-   # Reload systemd and enable the service
-   systemctl daemon-reload
-   systemctl enable proxmox-redfish.service --now
-   ```
+- Enroll custom **PK / KEK / db** keys either via predefined **profiles**
+  (`SecureBoot.ResetKeys` → `ResetAllKeysToDefault` / `DeleteAllKeys` / `DeletePK`) or via
+  **certificate CRUD** on `SecureBootDatabases/{db}/Certificates` (PEM/DER public certs;
+  private keys are rejected).
+- On `PATCH SecureBoot {SecureBootEnable: true}`, the daemon builds an OVMF varstore from
+  the staged certificates (`virt-fw-vars`) and writes it to the VM's host-side efidisk
+  LVM volume.
+- Switching a VM to UEFI auto-provisions a 4 MB OVMF efidisk if one is absent, so Secure
+  Boot has persistent NVRAM to target.
+- **Writes are dry-run by default** (`REDFISH_SB_ALLOW_WRITE=0`); they are guarded by an
+  LVM volume-group allowlist and the `INV-*` safety checks documented in
+  [`docs/SECURITY.md`](docs/SECURITY.md).
 
-8. Start the service
+Design rationale is in
+[`docs/decisions/0001-secureboot-via-varstore-swap.md`](docs/decisions/0001-secureboot-via-varstore-swap.md).
 
-   ```bash
-   # Start the service
-   systemctl start proxmox-redfish
+## Remote logging (Grafana Loki)
 
-   # Check if it's running
-   systemctl status proxmox-redfish
+The daemon can push structured logs directly to **Grafana Loki**, independent of the host
+OS or journald. Set `REDFISH_LOKI_URL` to your Loki push endpoint (an empty URL disables
+it). Stream labels, basic-auth credentials, and multi-tenant headers are configurable via
+`REDFISH_LOKI_LABELS`, `REDFISH_LOKI_USER`/`REDFISH_LOKI_PASSWORD`, and
+`REDFISH_LOKI_TENANT`. Local logging continues to `journalctl -u proxmox-redfish`.
 
-   # View the logs
-   journalctl -u proxmox-redfish -f
-   ```
+## Documentation
 
-### Using a Least-Privilege Service Account
+| Document | Contents |
+|----------|----------|
+| [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) | Functional + non-functional requirements (with IDs). |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Daemon structure and where Secure Boot fits. |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model + the `INV-*` guard rails for host-side writes. |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phased delivery and acceptance criteria. |
+| [`docs/PARITY-PLAN.md`](docs/PARITY-PLAN.md) | Plan to full DMTF parity, with VM-specific exceptions. |
+| [`RedFishSpecCompliance.md`](RedFishSpecCompliance.md) | Coverage tables, validator results, cross-client matrix, variances. |
+| [`docs/research/redfish-validation-tools.md`](docs/research/redfish-validation-tools.md) | DMTF conformance validators research (Service / Protocol / Interop / Usecase). |
+| [`packaging/README.md`](packaging/README.md) | Debian package build, install, and layout details. |
+| [`docs/README.md`](docs/README.md) | Full documentation index and reading order. |
 
-For production use, create a dedicated user instead of using root:
+Audience guides: [User Guide](docs/users/README.md) · [Admin Guide](docs/admins/README.md) · [Contributor Guide](docs/contrib/README.md).
 
-1. In the Proxmox web interface
-   - Go to "Datacenter" → **Users**
-   - Click "Add" → **User**
-   - Create a user like `redfish@pam`
-   - Set a strong password
+## Acknowledgements
 
-2. Update the configuration
+This project stands on the shoulders of the original
+**[`v1k0d3n/proxmox-redfish`](https://github.com/v1k0d3n/proxmox-redfish)** by
+**Brandon B. Jozsa** ([@v1k0d3n](https://github.com/v1k0d3n)). That implementation framed
+the idea of fronting Proxmox VMs with a Redfish daemon and built the foundation this work
+depends on — the core daemon, the provisioning workflow, and the integration story with
+Metal3 / Ironic / ZTP. **Sincere thanks to Brandon**: this fork would not exist without it.
+What we have added on top — full DMTF spec coverage, UEFI Secure Boot enrollment, Debian
+packaging, Grafana Loki logging, and 0-FAIL conformance on both validators — is an
+extension of his original vision, not a replacement for it.
 
-   ```bash
-   # Edit the configuration file
-   vi /opt/proxmox-redfish/config/params.env
-   
-   # Change these lines:
-   PROXMOX_USER="redfish@pam"
-   PROXMOX_PASSWORD="your-redfish-user-password"
-   ```
+With gratitude also to:
 
-3. Restart the service
-
-   ```bash
-   systemctl restart proxmox-redfish
-   ```
-
-## Advanced Documentation
-
-There are a few guides that users may find useful:
-- **For Users**: See the [User Guide](docs/users/README.md) for Redfish API usage
-- **For Administrators**: See the [Admin Guide](docs/admins/README.md) for configuration and security
-- **For Developers**: See [Contributor Guide](docs/contrib/README.md) for development and testing
-
-## Validation Testing and Troubleshooting
-
-A user-guide has been provided to assist with basic testing and vailidating your deployment. See the [User Guide](docs/users/README.md) for more detail.
-
-### Common Issues
-
-1. **Service won't start**
-   ```bash
-   # Check the logs
-   journalctl -u proxmox-redfish -n 50
-   
-   # Check if the virtual environment is activated
-   ls -la /opt/proxmox-redfish/venv/bin/python
-   ```
-
-2. **SSL certificate errors**
-   ```bash
-   # Regenerate the certificate
-   cd /opt/proxmox-redfish
-   openssl req -x509 -newkey rsa:4096 -keyout config/ssl/server.key -out config/ssl/server.crt -days 365 -nodes -subj "/CN=$(hostname)"
-   chmod 600 config/ssl/server.key
-   chmod 644 config/ssl/server.crt
-   systemctl restart proxmox-redfish
-   ```
-
-3. **Authentication errors**
-   - Verify your Proxmox credentials in `config/params.env`
-   - Check that the user has appropriate permissions
-   - Ensure the Proxmox host is accessible
-
-4. **Advanced logging**
-   - This project uses a crude Linux logging level to monitor Redfish calls to the daemon process. If you want to change the default logging level the `params.env` file. (example: change `REDFISH_LOG_LEVEL="INFO"` to `REDFISH_LOG_LEVEL="DEBUG"`).
-
-### Getting Help
-
-- Check the [Admin Guide](docs/admins/README.md) for detailed configuration options
-- Review the [User Guide](docs/users/README.md) for API usage examples
-- Open an issue on GitHub for bugs or feature requests (I'm always looking for input or new ideas)
-
-## Security Notes
-
-- The daemon runs as root by default for full VM access (you may change this to a [PoLP](https://en.wikipedia.org/wiki/Principle_of_least_privilege) model if desired)
-- SSL certificates are self-signed by default (you can provide your own valid certificates if desired)
-- Consider using a dedicated user with limited permissions (through Roles/Permissions in Proxmox)
-- Always keep your Proxmox credentials secure
-- Regularly update the daemon and dependencies (as this project matures over time)
+- **[DMTF](https://www.dmtf.org/standards/redfish)** — for the Redfish standard (DSP0266 /
+  DSP2046) and the open-source **Redfish-Service-Validator** and **Redfish-Protocol-Validator**
+  that this project is held to.
+- **[OpenStack sushy](https://opendev.org/openstack/sushy)**, **[DMTF redfishtool](https://github.com/DMTF/Redfishtool)**,
+  and **[DMTF python-redfish-library](https://github.com/DMTF/python-redfish-library)** — the
+  client projects that define real-world interoperability and against which this daemon is tested.
 
 ## License
 
-This project is licensed under the Apache 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-I'm definitely looking for feedback and contibutions! Please see the [Contributor Guide](docs/contrib/README.md) for details on how to get started. 
-
-## Background
-
-This project was _heavily_ influenced from project originally started by [jorgeventura](https://github.com/jorgeventura/pve-redfish), but what started out as one script with many remaining gaps turned into something way too large to contribute back. I will however contact the original author and see if there's an opportunity to colaborate going forward, but I felt like I needed to show intent first. I used [Cursor](https://cursor.com/?from=home) to draft the original framework for this project, and as a result, there's quite a bit of work to do in order to make things a bit more clean. But a turn-around of less than 24hrs for something that would take me a month to complete isn't half-bad.
-
-Please feel free to leave an [ISSUE](https://github.com/v1k0d3n/proxmox-redfish/issues) or submit a [PR](https://github.com/v1k0d3n/proxmox-redfish/pulls) if you have any input that you would like to share.
+Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) for details.
