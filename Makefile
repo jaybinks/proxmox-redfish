@@ -1,4 +1,4 @@
-VERSION ?= 0.2.10
+VERSION ?= 0.2.11
 
 .PHONY: deb deb-dpkg clean test help
 

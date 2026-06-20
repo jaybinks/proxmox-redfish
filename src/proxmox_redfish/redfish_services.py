@@ -124,49 +124,70 @@ _ROLES = {
 # --------------------------------------------------------------------------- #
 _LOG_IDS = {
     "SEL": "System Event Log (Proxmox VM task log)",
-    "SerialLog": "Serial console output",
 }
+
+
+def _serial_log_ids(vmid: int) -> list:
+    """
+    Serial LogService ids for a VM. Port 0 ('SerialLog') is always advertised so the
+    resource exists even when the VM is stopped; additional ports (SerialLog1..3) are
+    listed only when their QEMU socket is present (VM running with serialN: socket).
+    """
+    from proxmox_redfish import serial_capture
+
+    ids = ["SerialLog"]
+    for port in serial_capture.available_ports(vmid):
+        if port > 0:
+            ids.append(serial_capture.log_id_for_port(port))
+    return ids
 
 
 def build_log_service_collection(vmid: int) -> Tuple[Dict[str, Any], int]:
     base = f"/redfish/v1/Systems/{vmid}/LogServices"
+    ids = list(_LOG_IDS) + _serial_log_ids(vmid)
     return (
         {
             "@odata.id": base,
             "@odata.type": "#LogServiceCollection.LogServiceCollection",
             "Name": "Log Service Collection",
-            "Members@odata.count": len(_LOG_IDS),
-            "Members": [{"@odata.id": f"{base}/{lid}"} for lid in _LOG_IDS],
+            "Members@odata.count": len(ids),
+            "Members": [{"@odata.id": f"{base}/{lid}"} for lid in ids],
         },
         200,
     )
 
 
 def build_log_service(vmid: int, log_id: str) -> Tuple[Dict[str, Any], int]:
-    if log_id not in _LOG_IDS:
+    from proxmox_redfish import serial_capture
+
+    serial_port = serial_capture.port_from_log_id(log_id)
+    if log_id not in _LOG_IDS and serial_port is None:
         return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": "log service not found"}}, 404)
     base = f"/redfish/v1/Systems/{vmid}/LogServices/{log_id}"
+    is_serial = serial_port is not None
+    name = f"Serial console (serial{serial_port})" if is_serial else _LOG_IDS[log_id]
     body = {
         "@odata.id": base,
         "@odata.type": "#LogService.v1_3_0.LogService",
         "Id": log_id,
-        "Name": _LOG_IDS[log_id],
+        "Name": name,
         "ServiceEnabled": True,
         "OverWritePolicy": "WrapsWhenFull",
-        "LogEntryType": "Event" if log_id == "SEL" else "OEM",
+        "LogEntryType": "OEM" if is_serial else "Event",
         "Entries": {"@odata.id": f"{base}/Entries"},
     }
-    if log_id == "SerialLog":
-        from proxmox_redfish import serial_capture
-
+    if is_serial:
         body["Oem"] = {
             "Proxmox": {
                 "Note": (
-                    "VM serial console. Requires 'serial0: socket' on the VM and "
-                    "REDFISH_SERIAL_CAPTURE=1 on the daemon; capture is from first access "
-                    "onward and is held in a bounded in-memory ring buffer."
+                    f"VM serial console (serial{serial_port}). Requires "
+                    f"'serial{serial_port}: socket' on the VM and REDFISH_SERIAL_CAPTURE=1 "
+                    "on the daemon; capture is from first access onward and is held in a "
+                    "bounded in-memory ring buffer."
                 ),
+                "SerialPort": serial_port,
                 "CaptureEnabled": serial_capture.capture_enabled(),
+                "SocketPresent": serial_port in serial_capture.available_ports(vmid),
             }
         }
     return body, 200
@@ -183,7 +204,10 @@ def _vm_tasks(proxmox: Any, vmid: int) -> list:
 
 
 def build_log_entries(proxmox: Any, vmid: int, log_id: str) -> Tuple[Dict[str, Any], int]:
-    if log_id not in _LOG_IDS:
+    from proxmox_redfish import serial_capture
+
+    serial_port = serial_capture.port_from_log_id(log_id)
+    if log_id not in _LOG_IDS and serial_port is None:
         return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": "log service not found"}}, 404)
     base = f"/redfish/v1/Systems/{vmid}/LogServices/{log_id}/Entries"
     members = []
@@ -204,12 +228,10 @@ def build_log_entries(proxmox: Any, vmid: int, log_id: str) -> Tuple[Dict[str, A
                     "OemRecordFormat": "Proxmox",
                 }
             )
-    elif log_id == "SerialLog":
+    elif serial_port is not None:
         # Captured VM serial console (opt-in REDFISH_SERIAL_CAPTURE=1). Each output
         # line becomes an OEM LogEntry; capture is from first-access onward.
-        from proxmox_redfish import serial_capture
-
-        for idx, (ts, line) in enumerate(serial_capture.get_lines(int(vmid)), start=1):
+        for idx, (ts, line) in enumerate(serial_capture.get_lines(int(vmid), serial_port), start=1):
             members.append(
                 {
                     "@odata.id": f"{base}/{idx}",
