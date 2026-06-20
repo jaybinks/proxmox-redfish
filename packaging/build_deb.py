@@ -93,13 +93,28 @@ def main():
         if fn.endswith(".example"):
             shutil.copy2(os.path.join(ROOT, "config", fn), os.path.join(app, "config", fn))
 
-    # --- vendored offline wheels (pure-Python) ---
-    wheels = os.path.join(app, "wheels")
-    os.makedirs(wheels)
-    print("Vendoring offline wheels (proxmoxer, requests-toolbelt)...")
+    # --- vendored pure-Python deps, UNPACKED (no venv/pip needed at install) ---
+    vendor = os.path.join(app, "vendor")
+    os.makedirs(vendor)
+    print("Vendoring pure-Python deps unpacked (proxmoxer, requests-toolbelt)...")
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "download", "--no-deps", "--dest", wheels, "proxmoxer", "requests-toolbelt"]
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--no-compile",
+            "--target",
+            vendor,
+            "proxmoxer",
+            "requests-toolbelt",
+        ]
     )
+    # Drop pip's bookkeeping dirs to keep the package tidy.
+    for junk in os.listdir(vendor):
+        if junk.endswith(".dist-info") or junk == "__pycache__":
+            shutil.rmtree(os.path.join(vendor, junk), ignore_errors=True)
 
     # --- systemd unit + config ---
     os.makedirs(os.path.join(stage, "lib/systemd/system"))

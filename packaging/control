@@ -3,10 +3,13 @@ Version: @VERSION@
 Section: admin
 Priority: optional
 Architecture: all
+Depends: python3 (>= 3.9), python3-requests, python3-cryptography
+Recommends: python3-virt-firmware, openssl
 Maintainer: Jay Binks <jaybinks@gmail.com>
-Depends: python3 (>= 3.9), python3-venv, python3-requests, python3-cryptography, openssl, adduser
 Description: Redfish API daemon for Proxmox VE
  Exposes a DMTF Redfish API in front of Proxmox VE virtual machines, including
  power control, virtual media, boot configuration, and UEFI Secure Boot key
  management. Built for bare-metal provisioning tools (Metal3, OpenStack Ironic,
  OpenShift ZTP, sushy). Validated against the DMTF Redfish-Service-Validator.
+ Runs on the system python3 with its two pure-Python dependencies bundled; no
+ venv, no pip, no network required at install.

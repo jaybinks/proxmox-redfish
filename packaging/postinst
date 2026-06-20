@@ -1,34 +1,22 @@
 #!/bin/sh
-# postinst -- configure proxmox-redfish after files are unpacked.
+# postinst -- configure proxmox-redfish. No venv/pip/network: the app runs on the
+# system python3 with apt-provided requests/cryptography + bundled pure-Python deps.
 set -e
 
-APP=/opt/proxmox-redfish
 ETC=/etc/proxmox-redfish
 STATE=/var/lib/proxmox-redfish
 
 case "$1" in
     configure)
-        # Build an isolated venv that can see the apt-provided python3-requests /
-        # python3-cryptography (system-site-packages), and add the two pure-Python
-        # deps from the vendored offline wheels (fallback to PyPI if unavailable).
-        if [ ! -x "$APP/venv/bin/python" ]; then
-            python3 -m venv --system-site-packages "$APP/venv"
-        fi
-        "$APP/venv/bin/pip" install --quiet --upgrade pip >/dev/null 2>&1 || true
-        if ! "$APP/venv/bin/pip" install --quiet --no-index --find-links "$APP/wheels" \
-                proxmoxer requests-toolbelt >/dev/null 2>&1; then
-            "$APP/venv/bin/pip" install --quiet proxmoxer requests-toolbelt >/dev/null 2>&1 \
-                || echo "proxmox-redfish: WARNING - could not install proxmoxer/requests-toolbelt; install manually." >&2
-        fi
-
         # Runtime directories.
         mkdir -p "$STATE/secureboot" "$STATE/varstores"
         chmod 0750 "$STATE" "$STATE/secureboot"
         mkdir -p "$ETC"
 
         # Ship the SecureBoot profile catalog example if no live one exists.
-        if [ ! -f "$ETC/secureboot_profiles.json" ] && [ -f "$APP/config/secureboot_profiles.json.example" ]; then
-            cp "$APP/config/secureboot_profiles.json.example" "$ETC/secureboot_profiles.json"
+        if [ ! -f "$ETC/secureboot_profiles.json" ] && \
+           [ -f /opt/proxmox-redfish/config/secureboot_profiles.json.example ]; then
+            cp /opt/proxmox-redfish/config/secureboot_profiles.json.example "$ETC/secureboot_profiles.json"
         fi
 
         # Generate a self-signed TLS cert for the Redfish endpoint if none present.
@@ -40,6 +28,12 @@ case "$1" in
             chmod 0640 "$ETC/server.key" 2>/dev/null || true
         fi
         chmod 0640 "$ETC/params.env" 2>/dev/null || true
+
+        # Sanity-check that the app imports on the system interpreter.
+        if ! PYTHONPATH=/opt/proxmox-redfish/src:/opt/proxmox-redfish/vendor \
+                /usr/bin/python3 -c "import proxmox_redfish.proxmox_redfish" >/dev/null 2>&1; then
+            echo "proxmox-redfish: WARNING - import check failed; verify python3-requests is installed." >&2
+        fi
 
         # Enable (but do not start -- the admin must set credentials first).
         if [ -d /run/systemd/system ]; then

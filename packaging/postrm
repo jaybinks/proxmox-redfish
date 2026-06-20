@@ -8,8 +8,6 @@ STATE=/var/lib/proxmox-redfish
 
 case "$1" in
     remove)
-        # Drop the venv we created in postinst (not tracked by dpkg).
-        rm -rf "$APP/venv"
         # If /opt/proxmox-redfish is now empty of packaged files, remove it.
         rmdir "$APP" 2>/dev/null || true
         if [ -d /run/systemd/system ]; then

@@ -17,21 +17,26 @@ Python + pip. (`make deb-dpkg` uses `dpkg-deb` instead, on hosts that have it.)
 ## Install (on the Proxmox host)
 
 ```bash
-sudo apt install ./proxmox-redfish_0.2.0_all.deb
+sudo apt install ./proxmox-redfish_0.2.1_all.deb
 sudo editor /etc/proxmox-redfish/params.env      # set PROXMOX_HOST / USER / PASSWORD
 sudo systemctl start proxmox-redfish
 # Endpoint: https://<host>:8443/redfish/v1
 ```
 
+**No venv, no pip, no network.** The app runs on the system `python3` (Proxmox VE ships
+3.11) with the apt-provided `python3-requests` / `python3-cryptography`, plus the two
+pure-Python deps (`proxmoxer`, `requests-toolbelt`) bundled **unpacked** under
+`/opt/proxmox-redfish/vendor` and put on `PYTHONPATH` by the systemd unit.
+
 What the package does on install (`postinst`):
-- builds an isolated venv at `/opt/proxmox-redfish/venv` (`--system-site-packages`, so
-  it uses the apt `python3-requests`/`python3-cryptography`) and adds `proxmoxer` +
-  `requests-toolbelt` from the bundled offline wheels (no network required);
 - creates `/var/lib/proxmox-redfish/{secureboot,varstores}`;
 - generates a self-signed TLS cert in `/etc/proxmox-redfish/`;
+- import-checks the app on the system interpreter;
 - enables (but does not start) the systemd service.
 
-Runs as **root** — SecureBoot enrollment writes the VM efidisk LVM volume.
+Dependencies (all present on a current Proxmox VE host): `python3-requests`,
+`python3-cryptography`; recommends `python3-virt-firmware` (for SecureBoot dynamic
+varstore build). Runs as **root** — SecureBoot enrollment writes the VM efidisk LVM volume.
 
 ## Remove
 
@@ -50,8 +55,8 @@ package creates is cleaned by `postrm`.
 | Path | Contents |
 |------|----------|
 | `/opt/proxmox-redfish/src/` | application modules |
-| `/opt/proxmox-redfish/venv/` | runtime venv (created at install) |
-| `/opt/proxmox-redfish/wheels/` | bundled offline wheels |
+| `/opt/proxmox-redfish/vendor/` | bundled pure-Python deps (proxmoxer, requests-toolbelt) |
+| `/opt/proxmox-redfish/src/` | application modules |
 | `/etc/proxmox-redfish/params.env` | configuration (conffile) |
 | `/etc/proxmox-redfish/server.{crt,key}` | TLS cert (generated) |
 | `/var/lib/proxmox-redfish/` | SecureBoot state + varstores |
