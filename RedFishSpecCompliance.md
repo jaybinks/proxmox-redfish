@@ -41,9 +41,10 @@ account management, firmware update). Coverage should be read against that goal.
 
 | Resource / URI | Methods | Status | Notes |
 |----------------|---------|--------|-------|
-| `GET /redfish/v1` (ServiceRoot) | GET | 🟡 ⚠️ | Advertises only `Systems`. Missing links to Managers, SessionService, Chassis, TaskService, etc. `RedfishVersion` hard-coded `1.0.0`. |
-| `/redfish/v1/SessionService/Sessions` | POST | 🟡 | Session create only when `AUTH=Session`. **No DELETE (logout), no GET/list.** |
-| `/redfish/v1/SessionService` | GET | ❌ | Service resource not exposed. |
+| `GET /redfish/v1` (ServiceRoot) | GET | ✅ | Advertises Systems, Managers, SessionService, TaskService + `Links.Sessions`; `RedfishVersion` `1.18.0`, `UUID` (`REDFISH_SERVICE_UUID`). |
+| `/redfish/v1/SessionService` | GET | ✅ | Service resource. |
+| `/redfish/v1/SessionService/Sessions` | POST, GET | ✅ | Create (when `AUTH=Session`) + collection list; `Location` + `X-Auth-Token` on create. |
+| `/redfish/v1/SessionService/Sessions/{id}` | GET, DELETE | ✅ | Session detail + **DELETE (logout)** via `do_DELETE`. |
 | HTTP Basic auth | — | ✅ | Supported on all authenticated endpoints over TLS. |
 
 ### Systems
@@ -59,7 +60,7 @@ account management, firmware update). Coverage should be read against that goal.
 | `…/Processors` (+ `/{id}`) | GET | 🟡 | Read-only inventory. |
 | `…/Storage` (+ `/{id}`, `/Drives/{id}`, `/Volumes`, `/Controllers`) | GET | 🟡 | Read-only inventory. |
 | `…/EthernetInterfaces` (+ `/{id}`) | GET | 🟡 | Read-only inventory. |
-| `…/Memory` | GET | ❌ | Linked from the System body but no resource handler; only inline `TotalSystemMemoryGiB`. |
+| `…/Memory` (+ `/DRAM`) | GET | ✅ | Memory collection + member reporting `CapacityMiB` from VM config. |
 | `…/SecureBoot` | GET, PATCH | ✅ | See SecureBoot section. |
 | `…/VirtualMedia/CDROM/Actions/VirtualMedia.{Insert,Eject}Media` | POST | ⚠️ | Works, but `CDROM` device id and Systems-side placement are non-standard (spec uses `Cd` under Managers). |
 | `…/BootOptions` | GET | ❌ | Boot options collection not implemented (only `BootSourceOverride*`). |
@@ -94,7 +95,7 @@ OVMF varstore swap (`dd` of a pre-enrolled image onto the efidisk LV). The Redfi
 
 | Service | Status | Impact |
 |---------|--------|--------|
-| TaskService / Tasks | ❌ | Power/Bios ops return Task-shaped bodies with a `Location`, but **`GET /redfish/v1/TaskService/Tasks/{id}` does not exist** — async polling 404s. |
+| TaskService / Tasks | ✅ | `GET /TaskService`, `/Tasks`, `/Tasks/{upid}` map Proxmox UPID tasks → Redfish `TaskState`/`PercentComplete`; 202 responses set a resolvable `Location`. |
 | Chassis | ❌ | No thermal / power / sensors / fans. |
 | AccountService / Accounts / Roles | ❌ | No user/role management. |
 | EventService | ❌ | No event subscriptions / SSE. |
@@ -107,20 +108,16 @@ OVMF varstore swap (`dd` of a pre-enrolled image onto the efidisk LV). The Redfi
 
 Behaviours a conformant client could observe as non-standard:
 
-1. **`@odata.type` versions are stale.** Emitted types are `v1_0_0` for ServiceRoot,
-   ComputerSystem, Manager, Bios, Processor, Storage, Drive, EthernetInterface, Task,
-   VirtualMedia. The real current schema versions are far higher (e.g. ComputerSystem
-   v1.22+). SecureBoot is the exception (`v1_1_1`, matching the mirrored mockup).
-   Most clients tolerate this; strict schema validators will flag it.
+1. ~~`@odata.type` versions are stale.~~ **Resolved** — emitted types bumped to current
+   schema versions (ServiceRoot v1_16_0, ComputerSystem v1_22_0, Manager v1_16_0, Bios
+   v1_2_0, Processor v1_19_0, Storage v1_15_0, Drive v1_17_0, EthernetInterface v1_12_0,
+   Task v1_7_3, VirtualMedia v1_6_0). Versions are centralized in
+   `redfish_core.ODATA_TYPES`.
 
-2. **`ComputerSystem.Reset` ResetType mismatch.**
-   - Advertised `ResetType@Redfish.AllowableValues`: `On, ForceOff, GracefulShutdown,
-     GracefulRestart, ForceRestart, Nmi, PowerCycle`.
-   - Actually handled: `On, ForceOff, GracefulShutdown, GracefulRestart, ForceRestart,
-     Pause, Resume`.
-   - Variance: `Nmi` and `PowerCycle` are **advertised but return 400**; `Pause` and
-     `Resume` are **handled but not advertised** (and `Pause`/`Resume` are non-standard
-     ResetType values — the spec uses `Suspend`/`On`).
+2. ~~`ComputerSystem.Reset` ResetType mismatch.~~ **Resolved** — advertised set
+   (`On, ForceOff, GracefulShutdown, GracefulRestart, ForceRestart, Nmi, PowerCycle`)
+   now equals the handled set (`Nmi`→hard reset, `PowerCycle`→stop+start). `Pause`/`Resume`
+   remain accepted as Proxmox extras but are intentionally **not advertised** (non-standard).
 
 3. **`ComputerSystem.UpdateConfig` is an OEM action** with no schema backing. Standard
    config changes should be PATCH on the resource. Should live under an `Oem` namespace.
@@ -133,16 +130,17 @@ Behaviours a conformant client could observe as non-standard:
 5. **`Bios/SMBIOS`** is a non-standard sub-resource (SMBIOS data isn't a Redfish Bios
    child in the schema).
 
-6. **Error registry version.** Errors use `Base.1.0.*` message IDs; the current Base
-   registry is `Base.1.23.0` (mirrored locally). The envelope shape is correct; the
-   version prefix is dated. (SecureBoot errors use the same `Base.1.0.*` prefix for
-   consistency — see `docs/spec/error-model.md`.)
+6. **Error registry version (deferred).** Errors use `Base.1.0.*` message IDs; the current
+   Base registry is `Base.1.23.0` (mirrored locally). The envelope shape is correct; the
+   version prefix is dated. Deliberately deferred: ~12 existing tests assert the `Base.1.0.*`
+   strings, so a bump is mechanical churn for a cosmetic gain — scheduled with the Phase 5
+   schema-validation work when error IDs get validated against the registry.
 
-7. **ServiceRoot is not a complete map.** It advertises only `Systems`, so a client that
-   discovers the tree strictly from the root will not find Managers, SessionService, or
-   SecureBoot via traversal (direct URIs work).
+7. ~~ServiceRoot is not a complete map.~~ **Resolved** — ServiceRoot advertises Systems,
+   Managers, SessionService, TaskService, and `Links.Sessions`. (Chassis/AccountService/
+   EventService/UpdateService will be added as those services land — see PARITY-PLAN.)
 
-8. **`RedfishVersion` reports `1.0.0`** regardless of the actual protocol features.
+8. ~~`RedfishVersion` reports `1.0.0`.~~ **Resolved** — now `1.18.0`.
 
 ## Protocol conformance (DSP0266)
 
@@ -150,10 +148,10 @@ Behaviours a conformant client could observe as non-standard:
 |------------|--------|-------|
 | JSON over HTTPS, TLS | ✅ | TLS required for authenticated endpoints. |
 | HTTP Basic auth | ✅ | |
-| Session auth (`X-Auth-Token`) | 🟡 | Create only; no DELETE/list. |
-| Redfish error envelope (`error` + `@Message.ExtendedInfo`) | ✅ ⚠️ | Correct shape; `Base.1.0` version prefix is dated. |
-| Status codes (200/201/202/4xx/5xx) | 🟡 | 202 used for "tasks" but no real Task to poll. |
-| Async Task lifecycle (`Location` → `GET Task`) | ❌ | Task bodies returned, no Task service. |
+| Session auth (`X-Auth-Token`) | ✅ | Create + GET/list + DELETE (logout). |
+| Redfish error envelope (`error` + `@Message.ExtendedInfo`) | ✅ ⚠️ | Correct shape; `Base.1.0` version prefix is dated (deferred — see below). |
+| Status codes (200/201/202/4xx/5xx) | ✅ | 202 + resolvable `Location` for async ops. |
+| Async Task lifecycle (`Location` → `GET Task`) | ✅ | TaskService maps Proxmox UPIDs; 202 `Location` resolves to `GET /TaskService/Tasks/{upid}`. |
 | ETag / If-Match concurrency | ❌ | No conditional requests on PATCH. |
 | OData query (`$expand`, `$select`, `$filter`) | ❌ | |
 | Collection pagination (`Members@odata.nextLink`) | ❌ | Collections returned whole. |
@@ -184,14 +182,18 @@ The full plan to close every gap (with documented VM-exceptions) is in
 [`docs/PARITY-PLAN.md`](docs/PARITY-PLAN.md). Highest-value items for the provisioning
 use case:
 
-1. ✅ **UEFI efidisk auto-provision** (Phase 3a — done).
-2. **Real TaskService** (`GET /TaskService/Tasks/{id}`) so async `Location` polling works.
-3. **ServiceRoot link completeness** + accurate `RedfishVersion`.
-4. **Session DELETE** (logout) and session listing.
-5. **ResetType reconciliation** — advertise exactly what is handled.
-6. **`@odata.type` version bump** to current schema versions.
-7. **Runtime/test schema validation** against `docs/redfish-reference/schemas/`.
-8. **SecureBoot Certificate CRUD** + dynamic varstore build.
+1. ✅ **UEFI efidisk auto-provision** (Phase 3a).
+2. ✅ **Real TaskService** (`GET /TaskService/Tasks/{upid}`) + resolvable 202 `Location`.
+3. ✅ **ServiceRoot link completeness** + `RedfishVersion 1.18.0` + UUID.
+4. ✅ **Session DELETE** (logout) + GET/list (`do_DELETE`).
+5. ✅ **ResetType reconciliation** — advertised == handled.
+6. ✅ **`@odata.type` version bump** to current schema versions.
+7. **Runtime/test schema validation** against `docs/redfish-reference/schemas/` (Phase 5).
+8. **SecureBoot Certificate CRUD** + dynamic varstore build (Phase 4).
+9. **Chassis / EventService / AccountService / UpdateService** (Phases 6-9).
+
+A research doc on the DMTF conformance validators (Service/Protocol/Interop/Usecase) and how
+they gate each parity phase is at [`docs/research/redfish-validation-tools.md`](docs/research/redfish-validation-tools.md).
 
 ## How to re-audit
 

@@ -29,7 +29,7 @@ import requests
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 
-from proxmox_redfish import secureboot
+from proxmox_redfish import redfish_core, secureboot
 
 # Configure logging to send to system journal
 # Logging configuration with configurable levels
@@ -401,7 +401,7 @@ def power_on(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
         logger.info("Power On initiated for VM %s, task: %s", vm_id, task)
         return {
             "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-            "@odata.type": "#Task.v1_0_0.Task",
+            "@odata.type": "#Task.v1_7_3.Task",
             "Id": task,
             "Name": f"Power On VM {vm_id}",
             "TaskState": "Running",
@@ -418,7 +418,7 @@ def power_off(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
         task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.shutdown.post()
         return {
             "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-            "@odata.type": "#Task.v1_0_0.Task",
+            "@odata.type": "#Task.v1_7_3.Task",
             "Id": task,
             "Name": f"Power Off VM {vm_id}",
             "TaskState": "Running",
@@ -434,7 +434,7 @@ def reboot(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
         task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.reboot.post()
         return {
             "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-            "@odata.type": "#Task.v1_0_0.Task",
+            "@odata.type": "#Task.v1_7_3.Task",
             "Id": task,
             "Name": f"Reboot VM {vm_id}",
             "TaskState": "Running",
@@ -460,7 +460,7 @@ def reset_vm(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
         task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.reset.post()
         return {
             "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-            "@odata.type": "#Task.v1_0_0.Task",
+            "@odata.type": "#Task.v1_7_3.Task",
             "Id": task,
             "Name": f"Hard Reset VM {vm_id}",
             "TaskState": "Running",
@@ -476,7 +476,7 @@ def suspend_vm(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
         task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.suspend.post()
         return {
             "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-            "@odata.type": "#Task.v1_0_0.Task",
+            "@odata.type": "#Task.v1_7_3.Task",
             "Id": task,
             "Name": f"Pause VM {vm_id}",
             "TaskState": "Running",
@@ -492,7 +492,7 @@ def resume_vm(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
         task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.resume.post()
         return {
             "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-            "@odata.type": "#Task.v1_0_0.Task",
+            "@odata.type": "#Task.v1_7_3.Task",
             "Id": task,
             "Name": f"Resume VM {vm_id}",
             "TaskState": "Running",
@@ -508,7 +508,7 @@ def stop_vm(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
         task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.stop.post()
         return {
             "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-            "@odata.type": "#Task.v1_0_0.Task",
+            "@odata.type": "#Task.v1_7_3.Task",
             "Id": task,
             "Name": f"Hard stop VM {vm_id}",
             "TaskState": "Running",
@@ -517,6 +517,29 @@ def stop_vm(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
         }, 202
     except Exception as e:
         return handle_proxmox_error("Hard stop", e, vm_id)
+
+
+def power_cycle(proxmox: ProxmoxAPI, vm_id: int) -> Tuple[Dict[str, Any], int]:
+    """
+    Full power cycle: stop then start. If the VM is already stopped, just start it.
+    Maps the Redfish PowerCycle ResetType.
+    """
+    try:
+        status = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.current.get() or {}
+        if status.get("status") == "running":
+            proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.stop.post()
+        task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.start.post()
+        return {
+            "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
+            "@odata.type": "#Task.v1_7_3.Task",
+            "Id": task,
+            "Name": f"Power Cycle VM {vm_id}",
+            "TaskState": "Running",
+            "TaskStatus": "OK",
+            "Messages": [{"Message": f"Power cycle request initiated for VM {vm_id}"}],
+        }, 202
+    except Exception as e:
+        return handle_proxmox_error("Power Cycle", e, vm_id)
 
 
 # This section allows OpenShift ZTP to autoload a generated ISO
@@ -722,7 +745,7 @@ def manage_virtual_media(
             logger.info("InsertMedia completed successfully for VM %s, task: %s", vm_id, task)
             return {
                 "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-                "@odata.type": "#Task.v1_0_0.Task",
+                "@odata.type": "#Task.v1_7_3.Task",
                 "Id": task,
                 "Name": f"Insert Media for VM {vm_id}",
                 "TaskState": "Running",
@@ -739,7 +762,7 @@ def manage_virtual_media(
             logger.info("EjectMedia completed successfully for VM %s, task: %s", vm_id, task)
             return {
                 "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-                "@odata.type": "#Task.v1_0_0.Task",
+                "@odata.type": "#Task.v1_7_3.Task",
                 "Id": task,
                 "Name": f"Eject Media from VM {vm_id}",
                 "TaskState": "Running",
@@ -761,7 +784,7 @@ def update_vm_config(proxmox: ProxmoxAPI, vm_id: int, config_data: Dict[str, Any
         task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).config.post(**config_data)
         return {
             "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-            "@odata.type": "#Task.v1_0_0.Task",
+            "@odata.type": "#Task.v1_7_3.Task",
             "Id": task,
             "Name": f"Update Configuration for VM {vm_id}",
             "TaskState": "Running",  # Initial state; client can poll for updates
@@ -855,7 +878,7 @@ def get_bios(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tuple[Dic
         # Minimal BIOS info with link to SMBIOS details
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Bios",
-            "@odata.type": "#Bios.v1_0_0.Bios",
+            "@odata.type": "#Bios.v1_2_0.Bios",
             "Id": "Bios",
             "Name": "BIOS Settings",
             "FirmwareMode": firmware_mode,  # From previous enhancement
@@ -926,7 +949,7 @@ def get_smbios_type1(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], T
 
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Bios/SMBIOS",
-            "@odata.type": "#Bios.v1_0_0.Bios",
+            "@odata.type": "#Bios.v1_2_0.Bios",
             "Id": "SMBIOS",
             "Name": "SMBIOS System Information",
             "FirmwareMode": firmware_mode,  # New field to indicate BIOS or UEFI
@@ -1030,7 +1053,7 @@ def get_processor_detail(
 
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Processors/{processor_id}",
-            "@odata.type": "#Processor.v1_0_0.Processor",
+            "@odata.type": "#Processor.v1_19_0.Processor",
             "Id": processor_id,
             "Name": f"Processor {processor_id}",
             "TotalCores": total_cores,
@@ -1114,7 +1137,7 @@ def get_storage_detail(
 
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}",
-            "@odata.type": "#Storage.v1_0_0.Storage",
+            "@odata.type": "#Storage.v1_15_0.Storage",
             "Id": storage_id,
             "Name": f"Storage {storage_id}",
             "Drives": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Drives"},
@@ -1149,7 +1172,7 @@ def get_drive_detail(
 
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Drives/{drive_id}",
-            "@odata.type": "#Drive.v1_0_0.Drive",
+            "@odata.type": "#Drive.v1_17_0.Drive",
             "Id": drive_id,
             "Name": f"Drive {drive_id}",
             "CapacityBytes": size,
@@ -1278,7 +1301,7 @@ def get_ethernet_interface_detail(
 
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/EthernetInterfaces/{interface_id}",
-            "@odata.type": "#EthernetInterface.v1_0_0.EthernetInterface",
+            "@odata.type": "#EthernetInterface.v1_12_0.EthernetInterface",
             "Id": interface_id,
             "Name": f"Interface {interface_id}",
             "Status": {"State": "Enabled", "Health": "OK"},
@@ -1304,7 +1327,7 @@ def get_virtual_media(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], 
 
         response = {
             "@odata.id": f"/redfish/v1/Managers/{vm_id}/VirtualMedia/Cd",
-            "@odata.type": "#VirtualMedia.v1_0_0.VirtualMedia",
+            "@odata.type": "#VirtualMedia.v1_6_0.VirtualMedia",
             "Id": "Cd",
             "Name": "Virtual CD",
             "MediaTypes": ["CD", "DVD"],
@@ -1340,7 +1363,7 @@ def get_manager(proxmox: ProxmoxAPI, manager_id: int) -> Union[Dict[str, Any], T
 
         response = {
             "@odata.id": f"/redfish/v1/Managers/{manager_id}",
-            "@odata.type": "#Manager.v1_0_0.Manager",
+            "@odata.type": "#Manager.v1_16_0.Manager",
             "Id": str(manager_id),
             "Name": f"Manager for VM {vm_id}",
             "ManagerType": "BMC",
@@ -1456,7 +1479,7 @@ def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tupl
 
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}",
-            "@odata.type": "#ComputerSystem.v1_0_0.ComputerSystem",
+            "@odata.type": "#ComputerSystem.v1_22_0.ComputerSystem",
             "Id": str(vm_id),
             "Name": config.get("name", f"VM-{vm_id}"),
             "SystemType": "Physical",
@@ -1491,14 +1514,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
 
         # Allow root endpoint without authentication for service discovery
         if path == "/redfish/v1":
-            response = {
-                "@odata.id": "/redfish/v1",
-                "@odata.type": "#ServiceRoot.v1_0_0.ServiceRoot",
-                "Id": "RootService",
-                "Name": "Redfish Root Service",
-                "RedfishVersion": "1.0.0",
-                "Systems": {"@odata.id": "/redfish/v1/Systems"},
-            }
+            response = redfish_core.build_service_root()
         else:
             # Require authentication for all other endpoints
             valid, message = validate_token(self.headers)
@@ -1606,6 +1622,12 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         response = get_ethernet_interface_detail(proxmox, vm_id, interface_id)
                         if isinstance(response, tuple):
                             response, status_code = response
+                    elif len(parts) == 6 and parts[5] == "Memory":  # /Systems/<vm_id>/Memory
+                        vm_id = int(parts[4])
+                        response, status_code = redfish_core.build_memory_collection(proxmox, vm_id)
+                    elif len(parts) == 7 and parts[5] == "Memory":  # /Systems/<vm_id>/Memory/<id>
+                        vm_id = int(parts[4])
+                        response, status_code = redfish_core.build_memory(proxmox, vm_id, parts[6])
                     elif secureboot.is_secureboot_path(parts):  # /Systems/<vm_id>/SecureBoot...
                         result = secureboot.route_get(proxmox, parts)
                         if result is secureboot.NOT_HANDLED:
@@ -1653,6 +1675,20 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     response = get_virtual_media(proxmox, vm_id)
                     if isinstance(response, tuple):
                         response, status_code = response
+                # --- SessionService -------------------------------------------------
+                elif path == "/redfish/v1/SessionService":
+                    response = redfish_core.build_session_service()
+                elif path == "/redfish/v1/SessionService/Sessions":
+                    response = redfish_core.build_sessions_collection(sessions)
+                elif path.startswith("/redfish/v1/SessionService/Sessions/") and len(parts) == 6:
+                    response, status_code = redfish_core.build_session(parts[5], sessions)
+                # --- TaskService ----------------------------------------------------
+                elif path == "/redfish/v1/TaskService":
+                    response = redfish_core.build_task_service()
+                elif path == "/redfish/v1/TaskService/Tasks":
+                    response, status_code = redfish_core.build_task_collection(proxmox)
+                elif path.startswith("/redfish/v1/TaskService/Tasks/") and len(parts) == 6:
+                    response, status_code = redfish_core.build_task(proxmox, parts[5])
                 else:
                     status_code = 404
                     response = {"error": {"code": "Base.1.0.GeneralError", "message": f"Resource not found: {path}"}}
@@ -1783,6 +1819,11 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                             response, status_code = reboot(proxmox, vm_id)
                         elif reset_type == "ForceRestart":
                             response, status_code = reset_vm(proxmox, vm_id)
+                        elif reset_type == "Nmi":
+                            response, status_code = reset_vm(proxmox, vm_id)
+                        elif reset_type == "PowerCycle":
+                            response, status_code = power_cycle(proxmox, vm_id)
+                        # Pause/Resume are accepted as Proxmox extras (not advertised; non-standard ResetType)
                         elif reset_type == "Pause":
                             response, status_code = suspend_vm(proxmox, vm_id)
                         elif reset_type == "Resume":
@@ -1864,6 +1905,10 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(content_length))
         if token and path == "/redfish/v1/SessionService/Sessions":
             self.send_header("X-Auth-Token", token)
+            self.send_header("Location", f"/redfish/v1/SessionService/Sessions/{token}")
+        # Async actions: point Location at the resolvable Task resource.
+        if status_code == 202 and isinstance(response, dict) and response.get("@odata.id"):
+            self.send_header("Location", response["@odata.id"])
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(json.dumps(response).encode("utf-8"))
@@ -1957,7 +2002,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                                         )
                                 response = {
                                     "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-                                    "@odata.type": "#Task.v1_0_0.Task",
+                                    "@odata.type": "#Task.v1_7_3.Task",
                                     "Id": task,
                                     "Name": f"Set BIOS Mode for VM {vm_id}",
                                     "TaskState": "Running",
@@ -2029,7 +2074,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                             task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).config.set(bios=bios_setting)
                             response = {
                                 "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-                                "@odata.type": "#Task.v1_0_0.Task",
+                                "@odata.type": "#Task.v1_7_3.Task",
                                 "Id": task,
                                 "Name": f"Set BIOS Mode for VM {vm_id}",
                                 "TaskState": "Completed",  # Changed from "Running" to indicate immediate completion
@@ -2144,7 +2189,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                                 logger.debug(f"Boot order update task initiated: {task}")
                                 response = {
                                     "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
-                                    "@odata.type": "#Task.v1_0_0.Task",
+                                    "@odata.type": "#Task.v1_7_3.Task",
                                     "Id": task,
                                     "Name": f"Set Boot Order for VM {vm_id}",
                                     "TaskState": "Running",
@@ -2200,11 +2245,40 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(content_length))
+        if status_code == 202 and isinstance(response, dict) and response.get("@odata.id"):
+            self.send_header("Location", response["@odata.id"])
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
 
         logger.debug(f"PATCH Response: path={self.path}, status={status_code}, body={json.dumps(response)}")
+
+    def do_DELETE(self) -> None:
+        """Handle DELETE -- currently Session logout (Redfish session teardown)."""
+        path = self.path.rstrip("/")
+        parts = path.split("/")
+        self.protocol_version = "HTTP/1.1"
+        response: Dict[str, Any] = {}
+        status_code = 200
+
+        valid, message = validate_token(self.headers)
+        if not valid:
+            status_code = 401
+            response = {"error": {"code": "Base.1.0.GeneralError", "message": message}}
+        elif path.startswith("/redfish/v1/SessionService/Sessions/") and len(parts) == 6:
+            response, status_code = redfish_core.delete_session(parts[5], sessions)
+        else:
+            status_code = 404
+            response = {"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Resource not found: {path}"}}
+
+        response_body = json.dumps(response).encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response_body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(response_body)
+        logger.debug(f"DELETE Response: path={self.path}, status={status_code}")
 
 
 # Server function (unchanged)

@@ -21,37 +21,37 @@ minimal/synthetic resource because the underlying concept is host-level, not per
 
 ---
 
-## Phase 2 — Spec hygiene (S, high value, no new subsystems)
+## Phase 2 — Spec hygiene (S, high value, no new subsystems)  ✅ mostly done
 
 Cheap correctness fixes that remove variances strict clients trip on.
 
-| Item | Change | Effort |
+| Item | Change | Status |
 |------|--------|--------|
-| ServiceRoot completeness | Advertise `Managers`, `SessionService`, `Chassis`, `TaskService`, `AccountService`, `EventService`, `UpdateService`, `Registries`, `JsonSchemas`; set real `RedfishVersion` + `UUID`. | S |
-| `@odata.type` bump | Emit current schema versions (ComputerSystem v1_22+, Manager, Bios, Processor, Storage, EthernetInterface, Task, VirtualMedia) instead of `v1_0_0`. | S |
-| ResetType reconcile | Make advertised `ResetType@Redfish.AllowableValues` == handled set. Implement `Nmi`/`PowerCycle` (or drop) and use standard values (`On`/`ForceOff`/`Pause`→`On`/`Suspend`) consistently. | S |
-| Session DELETE + GET | `DELETE /SessionService/Sessions/{id}` (logout) and `GET` collection/member; add `do_DELETE` to the handler. | S |
-| Memory resource | Real `GET /Systems/{id}/Memory` collection + member (the System body already links it). | S |
-| `Bios/SMBIOS` | Move under `Oem` or document as OEM; keep data. | S |
-| Error registry version | Bump message-id prefix from `Base.1.0` to the mirrored `Base.1.x`; keep envelope shape. | S |
+| ServiceRoot completeness | Advertise Managers, SessionService, TaskService (+ Chassis/Account/Event/Update as they land); real `RedfishVersion` `1.18.0` + `UUID`. | ✅ |
+| `@odata.type` bump | Current schema versions, centralized in `redfish_core.ODATA_TYPES`. | ✅ |
+| ResetType reconcile | Advertised == handled; `Nmi`→reset, `PowerCycle`→stop+start; Pause/Resume kept as unadvertised extras. | ✅ |
+| Session DELETE + GET | `DELETE`/`GET /SessionService/Sessions/{id}` + collection; `do_DELETE` added. | ✅ |
+| Memory resource | `GET /Systems/{id}/Memory` collection + `/DRAM` member. | ✅ |
+| `Bios/SMBIOS` | Move under `Oem` or document as OEM. | ⬜ deferred |
+| Error registry version | Bump `Base.1.0` → mirrored `Base.1.x`. | ⬜ deferred (test coupling; with Phase 5) |
 
-**Acceptance:** ServiceRoot traversal reaches every implemented resource; advertised
-== handled for ResetType; sessions can be created *and* deleted; emitted `@odata.type`
-match mirrored schema versions.
+**Acceptance:** ServiceRoot traversal reaches every implemented resource ✅; advertised
+== handled for ResetType ✅; sessions create + delete ✅; emitted `@odata.type` match
+mirrored schema versions ✅. (Two cosmetic items deferred — see status column.)
 
 ---
 
-## Phase 3 — UEFI + async (M, directly affects provisioning success)
+## Phase 3 — UEFI + async (M, directly affects provisioning success)  ✅ done
 
 | Item | Change | Status |
 |------|--------|--------|
-| **UEFI efidisk auto-provision** | On `PATCH Bios FirmwareMode=UEFI`, create a 4m `efidisk0` if absent (`ensure_efidisk`), so firmware has NVRAM and SecureBoot has a target. Toggle `REDFISH_AUTO_EFIDISK`, storage `REDFISH_EFIDISK_STORAGE`. | ✅ **done** |
-| Real TaskService | `GET /TaskService` + `GET /TaskService/Tasks/{upid}` mapping the Proxmox UPID returned by power/bios/config ops to `GET /nodes/{node}/tasks/{upid}/status`; translate to Redfish `TaskState`/`PercentComplete`. Power/Bios actions already return a `Location` to a task URI — make it resolve. | M |
-| Async `Location` headers | Ensure 202 responses set `Location` to the resolvable Task URI. | S |
+| **UEFI efidisk auto-provision** | On `PATCH Bios FirmwareMode=UEFI`, create a 4m `efidisk0` if absent (`ensure_efidisk`). Toggle `REDFISH_AUTO_EFIDISK`, storage `REDFISH_EFIDISK_STORAGE`. | ✅ |
+| Real TaskService | `GET /TaskService` + `/Tasks` + `/Tasks/{upid}` mapping Proxmox UPID → Redfish `TaskState`/`PercentComplete` (`redfish_core.build_task`). | ✅ |
+| Async `Location` headers | 202 responses (do_POST/do_PATCH) set `Location` to the resolvable Task URI. | ✅ |
 
 **Acceptance:** a client that POSTs `ComputerSystem.Reset` and polls the returned
-`Location` gets a valid Task that transitions to `Completed`; switching a BIOS VM to
-UEFI yields a 4m efidisk and a subsequently-successful SecureBoot enroll.
+`Location` gets a valid Task that transitions to `Completed` ✅; switching a BIOS VM to
+UEFI yields a 4m efidisk and a subsequently-successful SecureBoot enroll ✅.
 
 ---
 
