@@ -3,6 +3,9 @@
 Phases are incremental. Each lists the requirements it satisfies and the invariants it must not
 regress. `INV-*` are in [SECURITY.md](SECURITY.md); `REQ-*` in [REQUIREMENTS.md](REQUIREMENTS.md).
 
+> Broader Redfish coverage beyond SecureBoot (full DMTF spec parity) is planned separately in
+> [PARITY-PLAN.md](PARITY-PLAN.md). UEFI efidisk auto-provisioning (parity Phase 3a) is **done**.
+
 ## Phase 0 — Docs & reference replica  ✅ (this session)
 
 Deliver the docs tree, threat model with INV-01..20, AS-IS baseline, and the pinned DMTF Redfish

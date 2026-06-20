@@ -9,6 +9,7 @@ document — update it whenever an endpoint is added or changed.
   (SecureBoot v1.2.0, ComputerSystem v1.28.0, ServiceRoot v1.21.0, Certificate v1.11.0, Base 1.23.0, …).
 - **Property-level matrix (SecureBoot):** [`docs/spec/conformance-matrix.md`](docs/spec/conformance-matrix.md).
 - **Error model:** [`docs/spec/error-model.md`](docs/spec/error-model.md).
+- **Plan to full parity:** [`docs/PARITY-PLAN.md`](docs/PARITY-PLAN.md).
 
 ## Compliance legend
 
@@ -53,7 +54,7 @@ account management, firmware update). Coverage should be read against that goal.
 | `/redfish/v1/Systems/{id}` | GET, PATCH | ✅ ⚠️ | GET inventory + power; PATCH sets boot order / mode. `@odata.type` `v1_0_0`. |
 | `…/Actions/ComputerSystem.Reset` | POST | 🟡 ⚠️ | See ResetType variance below. |
 | `…/Actions/ComputerSystem.UpdateConfig` | POST | ⚠️ | **Non-standard OEM action** (not in the schema). |
-| `…/Bios` | GET, PATCH | 🟡 | PATCH only `FirmwareMode` (seabios/ovmf). No BIOS attribute registry / settings object / ETag. |
+| `…/Bios` | GET, PATCH | 🟡 | PATCH `FirmwareMode` (seabios/ovmf). Setting UEFI **auto-provisions a 4m efidisk** if absent (`REDFISH_AUTO_EFIDISK`). No BIOS attribute registry / settings object / ETag. |
 | `…/Bios/SMBIOS` | GET | ⚠️ | Non-standard sub-resource. |
 | `…/Processors` (+ `/{id}`) | GET | 🟡 | Read-only inventory. |
 | `…/Storage` (+ `/{id}`, `/Drives/{id}`, `/Volumes`, `/Controllers`) | GET | 🟡 | Read-only inventory. |
@@ -168,19 +169,29 @@ Behaviours a conformant client could observe as non-standard:
 - **General Redfish client / CMDB / monitoring:** limited — no Chassis, sensors, events,
   accounts, or schema discovery.
 
-## Highest-value gaps to close next
+## UEFI support
 
-Prioritized for the provisioning use case (also tracked in
-[`docs/ROADMAP.md`](docs/ROADMAP.md)):
+Firmware mode is fully handled: `GET /Systems/{id}` reports `FirmwareMode` +
+`BootSourceOverrideMode` (UEFI when `bios=ovmf`), and `PATCH /Bios {FirmwareMode:UEFI}`
+sets `bios=ovmf`. As of Phase 3a, switching to UEFI also **auto-provisions a 4m OVMF
+efidisk** (`ensure_efidisk`) when absent — so the VM gets persistent UEFI NVRAM and
+SecureBoot has a target. Controlled by `REDFISH_AUTO_EFIDISK` / `REDFISH_EFIDISK_STORAGE`.
+A pre-existing 2m efidisk is reported as not-SecureBoot-ready (4m required).
 
-1. **Real TaskService** (`GET /TaskService/Tasks/{id}`) so async `Location` polling works.
-2. **ServiceRoot link completeness** + accurate `RedfishVersion`.
-3. **Session DELETE** (logout) and session listing.
-4. **ResetType reconciliation** — advertise exactly what is handled (drop Nmi/PowerCycle
-   or implement them; map Pause/Resume to standard values).
-5. **`@odata.type` version bump** to current schema versions.
-6. **Runtime/test schema validation** against `docs/redfish-reference/schemas/`.
-7. **SecureBoot Certificate CRUD** (P3/P4) + dynamic varstore build.
+## Path to full parity
+
+The full plan to close every gap (with documented VM-exceptions) is in
+[`docs/PARITY-PLAN.md`](docs/PARITY-PLAN.md). Highest-value items for the provisioning
+use case:
+
+1. ✅ **UEFI efidisk auto-provision** (Phase 3a — done).
+2. **Real TaskService** (`GET /TaskService/Tasks/{id}`) so async `Location` polling works.
+3. **ServiceRoot link completeness** + accurate `RedfishVersion`.
+4. **Session DELETE** (logout) and session listing.
+5. **ResetType reconciliation** — advertise exactly what is handled.
+6. **`@odata.type` version bump** to current schema versions.
+7. **Runtime/test schema validation** against `docs/redfish-reference/schemas/`.
+8. **SecureBoot Certificate CRUD** + dynamic varstore build.
 
 ## How to re-audit
 

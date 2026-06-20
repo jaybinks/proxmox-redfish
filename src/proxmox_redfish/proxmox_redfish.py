@@ -1352,6 +1352,44 @@ def get_manager(proxmox: ProxmoxAPI, manager_id: int) -> Union[Dict[str, Any], T
         return handle_proxmox_error("Manager retrieval", e, manager_id)
 
 
+def ensure_efidisk(proxmox: ProxmoxAPI, vm_id: Union[str, int], storage: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Ensure the VM has an OVMF EFI variable disk (efidisk0) with efitype=4m.
+
+    Switching a VM to UEFI (bios=ovmf) alone does not give it a persistent NVRAM
+    store; without an efidisk the firmware has no place to keep UEFI variables and
+    SecureBoot enrollment has no target. When FirmwareMode is set to UEFI we create
+    a 4m efidisk if one is absent. Creation is skipped when REDFISH_AUTO_EFIDISK=0.
+
+    Returns a dict describing the action (created / existing / skipped). Does not
+    raise on a pre-existing 2m efidisk -- it reports the mismatch so the caller can
+    surface guidance (SecureBoot needs 4m).
+    """
+    auto = os.getenv("REDFISH_AUTO_EFIDISK", "1") == "1"
+    storage = storage or os.getenv("REDFISH_EFIDISK_STORAGE", "local-lvm")
+    config = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).config.get() or {}
+    existing = config.get("efidisk0")
+    if existing:
+        efitype = ""
+        try:
+            efitype = secureboot.hostops.parse_efidisk_config(str(existing)).get("efitype", "")
+        except Exception:  # noqa: BLE001 - best-effort parse for reporting only
+            efitype = ""
+        return {
+            "action": "existing",
+            "efidisk0": str(existing),
+            "efitype": efitype,
+            "secureboot_ready": efitype == "4m",
+        }
+    if not auto:
+        return {"action": "skipped", "reason": "REDFISH_AUTO_EFIDISK=0", "secureboot_ready": False}
+    # Allocate a new 4m varstore. ":1" tells Proxmox to allocate a new volume.
+    spec = f"{storage}:1,efitype=4m,pre-enrolled-keys=0"
+    proxmox.nodes(PROXMOX_NODE).qemu(vm_id).config.set(efidisk0=spec)
+    logger.info("Created 4m efidisk for VM %s on storage %s", vm_id, storage)
+    return {"action": "created", "efidisk0": spec, "efitype": "4m", "secureboot_ready": True}
+
+
 def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tuple[Dict[str, Any], int]]:
     try:
         status = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).status.current.get()
@@ -1903,6 +1941,20 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                             else:
                                 bios_setting = "seabios" if mode == "BIOS" else "ovmf"
                                 task = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).config.set(bios=bios_setting)
+                                messages = [{"Message": f"Set BIOS mode to {mode} for VM {vm_id}"}]
+                                # UEFI needs an OVMF varstore (efidisk) for persistent NVRAM /
+                                # SecureBoot; provision a 4m efidisk if one is absent.
+                                if mode == "UEFI":
+                                    try:
+                                        efi = ensure_efidisk(proxmox, vm_id)
+                                        messages.append(
+                                            {"Message": f"EFI disk {efi['action']} (efitype={efi.get('efitype')})"}
+                                        )
+                                    except Exception as efi_exc:  # noqa: BLE001 - report, don't fail the mode switch
+                                        logger.warning("efidisk provisioning failed for VM %s: %s", vm_id, efi_exc)
+                                        messages.append(
+                                            {"Message": f"Warning: EFI disk provisioning failed: {efi_exc}"}
+                                        )
                                 response = {
                                     "@odata.id": f"/redfish/v1/TaskService/Tasks/{task}",
                                     "@odata.type": "#Task.v1_0_0.Task",
@@ -1910,7 +1962,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                                     "Name": f"Set BIOS Mode for VM {vm_id}",
                                     "TaskState": "Running",
                                     "TaskStatus": "OK",
-                                    "Messages": [{"Message": f"Set BIOS mode to {mode} for VM {vm_id}"}],
+                                    "Messages": messages,
                                 }
                                 status_code = 202
                         else:
