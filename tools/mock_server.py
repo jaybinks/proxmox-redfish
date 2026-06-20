@@ -16,6 +16,10 @@ from unittest.mock import MagicMock
 
 os.environ.setdefault("REDFISH_LOGGING_ENABLED", "false")
 os.environ.setdefault("PROXMOX_NODE", "pve")
+# Conformance is a controlled test environment: allow the validators to subscribe an
+# event destination / fetch ISOs to internal test targets (production defaults to deny).
+os.environ.setdefault("REDFISH_EVENT_ALLOW_INTERNAL", "1")
+os.environ.setdefault("REDFISH_ISO_ALLOW_INTERNAL", "1")
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
