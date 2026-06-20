@@ -29,7 +29,7 @@ import requests
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 
-from proxmox_redfish import redfish_core, secureboot
+from proxmox_redfish import redfish_core, redfish_services, secureboot
 
 # Configure logging to send to system journal
 # Logging configuration with configurable levels
@@ -1689,6 +1689,40 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     response, status_code = redfish_core.build_task_collection(proxmox)
                 elif path.startswith("/redfish/v1/TaskService/Tasks/") and len(parts) == 6:
                     response, status_code = redfish_core.build_task(proxmox, parts[5])
+                # --- Chassis --------------------------------------------------------
+                elif path == "/redfish/v1/Chassis":
+                    response, status_code = redfish_services.build_chassis_collection(proxmox)
+                elif len(parts) == 5 and parts[3] == "Chassis":
+                    response, status_code = redfish_services.build_chassis(proxmox, parts[4])
+                elif len(parts) == 6 and parts[3] == "Chassis" and parts[5] == "Power":
+                    response, status_code = redfish_services.build_chassis_power(parts[4])
+                elif len(parts) == 6 and parts[3] == "Chassis" and parts[5] == "Thermal":
+                    response, status_code = redfish_services.build_chassis_thermal(parts[4])
+                # --- AccountService -------------------------------------------------
+                elif path == "/redfish/v1/AccountService":
+                    response = redfish_services.build_account_service()
+                elif path == "/redfish/v1/AccountService/Accounts":
+                    response, status_code = redfish_services.build_accounts_collection(proxmox)
+                elif len(parts) == 6 and parts[4] == "Accounts" and parts[3] == "AccountService":
+                    response, status_code = redfish_services.build_account(proxmox, parts[5])
+                elif path == "/redfish/v1/AccountService/Roles":
+                    response = redfish_services.build_roles_collection()
+                elif len(parts) == 6 and parts[4] == "Roles" and parts[3] == "AccountService":
+                    response, status_code = redfish_services.build_role(parts[5])
+                # --- EventService ---------------------------------------------------
+                elif path == "/redfish/v1/EventService":
+                    response = redfish_services.build_event_service()
+                elif path == "/redfish/v1/EventService/Subscriptions":
+                    response = redfish_services.build_subscriptions_collection()
+                elif len(parts) == 6 and parts[3] == "EventService" and parts[4] == "Subscriptions":
+                    response, status_code = redfish_services.build_subscription(parts[5])
+                # --- UpdateService / discovery -------------------------------------
+                elif path == "/redfish/v1/UpdateService":
+                    response = redfish_services.build_update_service()
+                elif path == "/redfish/v1/Registries":
+                    response = redfish_services.build_registries()
+                elif path == "/redfish/v1/JsonSchemas":
+                    response = redfish_services.build_json_schemas()
                 else:
                     status_code = 404
                     response = {"error": {"code": "Base.1.0.GeneralError", "message": f"Resource not found: {path}"}}
@@ -1880,6 +1914,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         vm_id = int(path.split("/")[4])
                         config_data = data
                         response, status_code = update_vm_config(proxmox, vm_id, config_data)
+                    elif path == "/redfish/v1/EventService/Subscriptions":
+                        response, status_code = redfish_services.create_subscription(data)
                     elif "/SecureBoot/" in path and secureboot.is_secureboot_path(path.rstrip("/").split("/")):
                         sb_parts = path.rstrip("/").split("/")
                         result = secureboot.route_post(proxmox, sb_parts, data)
@@ -2267,6 +2303,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
             response = {"error": {"code": "Base.1.0.GeneralError", "message": message}}
         elif path.startswith("/redfish/v1/SessionService/Sessions/") and len(parts) == 6:
             response, status_code = redfish_core.delete_session(parts[5], sessions)
+        elif path.startswith("/redfish/v1/EventService/Subscriptions/") and len(parts) == 6:
+            response, status_code = redfish_services.delete_subscription(parts[5])
         elif secureboot.is_secureboot_path(parts):
             proxmox = get_proxmox_api(self.headers)
             result = secureboot.route_delete(proxmox, parts)

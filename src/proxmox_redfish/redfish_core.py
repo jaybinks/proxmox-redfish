@@ -52,9 +52,15 @@ def build_service_root() -> Dict[str, Any]:
         "RedfishVersion": REDFISH_VERSION,
         "UUID": service_root_uuid(),
         "Systems": {"@odata.id": "/redfish/v1/Systems"},
+        "Chassis": {"@odata.id": "/redfish/v1/Chassis"},
         "Managers": {"@odata.id": "/redfish/v1/Managers"},
         "SessionService": {"@odata.id": "/redfish/v1/SessionService"},
         "TaskService": {"@odata.id": "/redfish/v1/TaskService"},
+        "AccountService": {"@odata.id": "/redfish/v1/AccountService"},
+        "EventService": {"@odata.id": "/redfish/v1/EventService"},
+        "UpdateService": {"@odata.id": "/redfish/v1/UpdateService"},
+        "Registries": {"@odata.id": "/redfish/v1/Registries"},
+        "JsonSchemas": {"@odata.id": "/redfish/v1/JsonSchemas"},
         "Links": {"Sessions": {"@odata.id": "/redfish/v1/SessionService/Sessions"}},
     }
 

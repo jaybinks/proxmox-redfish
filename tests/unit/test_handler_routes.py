@@ -179,6 +179,45 @@ class HandlerRouteTests(unittest.TestCase):
         self.assertIn("400", status_line(h))
         self.assertEqual(body_json(h)["error"]["code"], "Base.1.0.ActionParameterValueError")
 
+    # New top-level services (Phases 6-9) -----------------------------------
+    def test_service_root_advertises_all_services(self):
+        h = make_handler(path="/redfish/v1")
+        h.do_GET()
+        data = body_json(h)
+        for key in ("Chassis", "AccountService", "EventService", "UpdateService", "Registries", "JsonSchemas"):
+            self.assertIn(key, data)
+
+    def test_chassis_member(self):
+        self.proxmox.nodes.return_value.qemu.get.return_value = [{"vmid": 100}]
+        h = make_handler(path="/redfish/v1/Chassis/100")
+        h.do_GET()
+        self.assertEqual(body_json(h)["ChassisType"], "VirtualMachine")
+
+    def test_account_service(self):
+        h = make_handler(path="/redfish/v1/AccountService")
+        h.do_GET()
+        self.assertEqual(body_json(h)["Id"], "AccountService")
+
+    def test_update_service_absent(self):
+        h = make_handler(path="/redfish/v1/UpdateService")
+        h.do_GET()
+        self.assertEqual(body_json(h)["Status"]["State"], "Absent")
+
+    def test_event_subscription_create_and_delete(self):
+        from proxmox_redfish import redfish_services as rs
+
+        rs.subscriptions.clear()
+        body = json.dumps({"Destination": "https://listener.example/ev"}).encode()
+        h = make_handler(method="POST", path="/redfish/v1/EventService/Subscriptions", body=body)
+        h.do_POST()
+        self.assertIn("201", status_line(h))
+        sid = body_json(h)["Id"]
+
+        h2 = make_handler(method="DELETE", path=f"/redfish/v1/EventService/Subscriptions/{sid}")
+        h2.do_DELETE()
+        self.assertIn("204", status_line(h2))
+        self.assertNotIn(sid, rs.subscriptions)
+
 
 if __name__ == "__main__":
     unittest.main()

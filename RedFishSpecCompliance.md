@@ -96,13 +96,14 @@ OVMF varstore swap (`dd` of a pre-enrolled image onto the efidisk LV). The Redfi
 | Service | Status | Impact |
 |---------|--------|--------|
 | TaskService / Tasks | ✅ | `GET /TaskService`, `/Tasks`, `/Tasks/{upid}` map Proxmox UPID tasks → Redfish `TaskState`/`PercentComplete`; 202 responses set a resolvable `Location`. |
-| Chassis | ❌ | No thermal / power / sensors / fans. |
-| AccountService / Accounts / Roles | ❌ | No user/role management. |
-| EventService | ❌ | No event subscriptions / SSE. |
-| UpdateService | ❌ | No firmware update. |
-| CertificateService | ❌ | No service-level certificate management. |
+| Chassis (+ Power/Thermal) | ✅ 🟡 | Collection + per-VM member (`ChassisType: VirtualMachine`); Power/Thermal are **synthetic** (empty — VMs have no physical sensors, marked `Oem.Proxmox.Synthetic`). |
+| AccountService / Accounts / Roles | ✅ 🟡 | Read-only mapping of Proxmox users + standard roles (Administrator/Operator/ReadOnly). Mutation deferred (Proxmox owns identity). |
+| EventService / Subscriptions | ✅ 🟡 | Service + subscription CRUD (in-memory, http(s)-only destinations). Event **delivery** not yet wired. |
+| UpdateService | ✅ | Present as `State: Absent` (no firmware surface for VMs) — crawlable, honestly reported. |
+| Registries, JsonSchemas | 🟡 | Empty collections present for discovery; `$metadata` document still ❌. |
+| CertificateService | ❌ | No service-level (daemon TLS) certificate management. |
 | TelemetryService, LogServices | ❌ | No metrics / logs. |
-| Registries, JsonSchemas, `$metadata` | ❌ | No schema/registry discovery; clients cannot introspect the service. |
+| `$metadata` (CSDL) | ❌ | OData metadata document not served. |
 
 ## Variances from the standard
 
@@ -137,8 +138,8 @@ Behaviours a conformant client could observe as non-standard:
    schema-validation work when error IDs get validated against the registry.
 
 7. ~~ServiceRoot is not a complete map.~~ **Resolved** — ServiceRoot advertises Systems,
-   Managers, SessionService, TaskService, and `Links.Sessions`. (Chassis/AccountService/
-   EventService/UpdateService will be added as those services land — see PARITY-PLAN.)
+   Chassis, Managers, SessionService, TaskService, AccountService, EventService,
+   UpdateService, Registries, JsonSchemas, and `Links.Sessions`.
 
 8. ~~`RedfishVersion` reports `1.0.0`.~~ **Resolved** — now `1.18.0`.
 

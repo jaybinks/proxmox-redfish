@@ -86,55 +86,57 @@ can fetch `$metadata` and introspect.
 
 ---
 
-## Phase 6 — Chassis (M, VM-exception)
+## Phase 6 — Chassis (M, VM-exception)  ✅ done
 
 VMs have no physical chassis/sensors, but the spec model expects one.
 
-| Item | Change |
-|------|--------|
-| Chassis collection + member | `GET /Chassis` + `/Chassis/{id}` linked to the System/Manager. |
-| Power / Thermal (synthetic) | Report VM vCPU/memory allocation as `PowerControl`; omit or synthesize `Thermal` with `Status: Absent`. Clearly marked OEM/synthetic. |
+| Item | Change | Status |
+|------|--------|--------|
+| Chassis collection + member | `GET /Chassis` + `/Chassis/{id}` (`ChassisType: VirtualMachine`) cross-linked to System + Manager. | ✅ |
+| Power / Thermal (synthetic) | `/Chassis/{id}/Power` + `/Thermal` present but empty, marked `Oem.Proxmox.Synthetic`. | ✅ |
 
-**Acceptance:** Chassis reachable from ServiceRoot and cross-linked from ComputerSystem;
-documented as synthetic for VMs.
-
----
-
-## Phase 7 — EventService (L)
-
-| Item | Change |
-|------|--------|
-| EventService + subscriptions | `GET /EventService`, `POST /EventService/Subscriptions` (destination), `GET/DELETE` subscriptions. |
-| Event delivery | Emit Redfish events (power state change, SecureBoot applied) to subscribers; optional SSE stream. Source events from Proxmox task/status transitions. |
-
-**Acceptance:** a subscriber receives a power-state-change event; Ironic-style event
-flows work as an alternative to polling.
+**Acceptance:** Chassis reachable from ServiceRoot and cross-linked from ComputerSystem ✅;
+documented as synthetic for VMs ✅.
 
 ---
 
-## Phase 8 — AccountService / Roles (M/L, VM-exception)
+## Phase 7 — EventService (L)  🟡 surface done, delivery pending
+
+| Item | Change | Status |
+|------|--------|--------|
+| EventService + subscriptions | `GET /EventService`, `POST/GET/DELETE /EventService/Subscriptions` (http(s)-only destinations, in-memory). | ✅ |
+| Event delivery | Emit Redfish events (power/SecureBoot) to subscribers; optional SSE. | ⬜ |
+
+**Acceptance:** subscription CRUD works ✅; event **delivery** to a subscriber still pending.
+
+---
+
+## Phase 8 — AccountService / Roles (M/L, VM-exception)  🟡 read-only done
 
 Proxmox owns identity; expose a read-mostly mapping.
 
-| Item | Change |
-|------|--------|
-| AccountService + Accounts + Roles | `GET` over Proxmox users/roles (read-only first); guarded create/delete mapping to `pveum` if explicitly enabled. |
+| Item | Change | Status |
+|------|--------|--------|
+| AccountService + Accounts + Roles | `GET` over Proxmox users + standard roles (Administrator/Operator/ReadOnly). | ✅ |
+| Mutation | Guarded create/delete mapping to `pveum`, opt-in. | ⬜ |
 
-**Acceptance:** account/role resources reflect Proxmox users; mutations gated behind an
-explicit opt-in flag (avoid surprising privilege changes).
+**Acceptance:** account/role resources reflect Proxmox users ✅; mutations remain deferred
+behind an explicit opt-in (avoid surprising privilege changes).
 
 ---
 
-## Phase 9 — Remaining services + OData query (L)
+## Phase 9 — Remaining services + OData query (L)  🟡 partial
 
-| Item | Change |
-|------|--------|
-| UpdateService | Stub/`Absent` for VMs (no firmware), or wire to a guest-agent/host hook if ever needed. |
-| CertificateService | Manage the daemon's own TLS certs (`HTTPS` cert) per schema. |
-| OData query | `$expand`, `$select`, `$filter`; collection pagination (`Members@odata.nextLink`). |
+| Item | Change | Status |
+|------|--------|--------|
+| UpdateService | Present as `State: Absent` (no VM firmware surface). | ✅ |
+| Registries / JsonSchemas | Empty discovery collections present. | ✅ |
+| CertificateService | Manage the daemon's own TLS certs per schema. | ⬜ |
+| `$metadata` (CSDL) | Serve the OData metadata document. | ⬜ |
+| OData query | `$expand`, `$select`, `$filter`; pagination (`Members@odata.nextLink`). | ⬜ |
 
-**Acceptance:** `$expand` on a collection returns embedded members; pagination works on
-large collections; UpdateService present (even if `Absent`).
+**Acceptance:** UpdateService present (Absent) ✅; remaining: `$metadata`, CertificateService,
+OData query/pagination.
 
 ---
 
