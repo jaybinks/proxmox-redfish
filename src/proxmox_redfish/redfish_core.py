@@ -36,7 +36,7 @@ REDFISH_VERSION = "1.18.0"
 
 # This daemon's own software version (kept in sync with the Debian package version).
 # Reported via the `Server` HTTP header, ServiceRoot Oem, and Manager.FirmwareVersion.
-APP_VERSION = "0.2.9"
+APP_VERSION = "0.2.10"
 
 
 def _resolve_build_commit() -> Optional[str]:

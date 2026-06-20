@@ -15,10 +15,17 @@ import logging
 import os
 import re
 import socket
+import time
 from typing import Any, Dict, Tuple, Union
 from urllib.parse import urlparse
 
 logger = logging.getLogger("proxmox-redfish.services")
+
+
+def _iso_utc(ts: float) -> str:
+    """Epoch seconds -> Redfish-friendly ISO 8601 UTC timestamp."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
 
 PROXMOX_NODE = os.getenv("PROXMOX_NODE", "pve")
 
@@ -150,8 +157,17 @@ def build_log_service(vmid: int, log_id: str) -> Tuple[Dict[str, Any], int]:
         "Entries": {"@odata.id": f"{base}/Entries"},
     }
     if log_id == "SerialLog":
+        from proxmox_redfish import serial_capture
+
         body["Oem"] = {
-            "Proxmox": {"Note": "VM serial output; configure 'serial0: socket' on the VM. Stream via 'qm terminal'."}
+            "Proxmox": {
+                "Note": (
+                    "VM serial console. Requires 'serial0: socket' on the VM and "
+                    "REDFISH_SERIAL_CAPTURE=1 on the daemon; capture is from first access "
+                    "onward and is held in a bounded in-memory ring buffer."
+                ),
+                "CaptureEnabled": serial_capture.capture_enabled(),
+            }
         }
     return body, 200
 
@@ -186,6 +202,24 @@ def build_log_entries(proxmox: Any, vmid: int, log_id: str) -> Tuple[Dict[str, A
                     "Message": "{} ({})".format(task.get("type", "task"), status or "n/a"),
                     "MessageId": "Base.1.0.Success" if severity == "OK" else "Base.1.0.GeneralError",
                     "OemRecordFormat": "Proxmox",
+                }
+            )
+    elif log_id == "SerialLog":
+        # Captured VM serial console (opt-in REDFISH_SERIAL_CAPTURE=1). Each output
+        # line becomes an OEM LogEntry; capture is from first-access onward.
+        from proxmox_redfish import serial_capture
+
+        for idx, (ts, line) in enumerate(serial_capture.get_lines(int(vmid)), start=1):
+            members.append(
+                {
+                    "@odata.id": f"{base}/{idx}",
+                    "@odata.type": "#LogEntry.v1_11_0.LogEntry",
+                    "Id": str(idx),
+                    "Name": "Serial Console Line",
+                    "EntryType": "Oem",
+                    "OemRecordFormat": "Proxmox.SerialConsole",
+                    "Created": _iso_utc(ts),
+                    "Message": line,
                 }
             )
     return (
