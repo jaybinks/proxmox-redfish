@@ -45,7 +45,7 @@ Profiles are pre-baked varstore images on the host, referenced by name. Config f
   "profiles": {
     "ngv-sb-on": {
       "description": "Custom NGV PK/KEK/db, --no-microsoft, SecureBootEnable=ON",
-      "image_path": "/opt/proxmox-redfish/varstores/ngv-ovmf-vars.img",
+      "image_path": "/var/lib/proxmox-redfish/varstores/ngv-ovmf-vars.img",
       "efitype": "4m",
       "secure_boot": true,
       "databases": { "PK": true, "KEK": true, "db": true, "dbx": false },
@@ -54,7 +54,7 @@ Profiles are pre-baked varstore images on the host, referenced by name. Config f
     },
     "sb-off-blank": {
       "description": "Blank varstore, SetupMode, SecureBootEnable=OFF",
-      "image_path": "/opt/proxmox-redfish/varstores/OVMF_VARS_4M.blank.fd",
+      "image_path": "/var/lib/proxmox-redfish/varstores/OVMF_VARS_4M.blank.fd",
       "efitype": "4m",
       "secure_boot": false,
       "databases": { "PK": false, "KEK": false, "db": false, "dbx": false },
