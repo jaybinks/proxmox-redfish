@@ -70,8 +70,56 @@ def main() -> None:
         "local-lvm:vm-100-disk-0", "local-lvm", "/dev/pve/vm-100-disk-0", "4m", True, 540672
     )
 
-    print(f"Mock Redfish daemon on http://0.0.0.0:{port} (Proxmox backend stubbed)")
-    mod.run_server(port)
+    tls = "https" in sys.argv or "--tls" in sys.argv
+    if tls:
+        cert, key = _self_signed_cert()
+        mod.SSL_CERT_FILE = cert
+        mod.SSL_KEY_FILE = key
+        mod.SSL_CA_FILE = "/nonexistent-ca.crt"
+        print(f"Mock Redfish daemon on https://0.0.0.0:{port} (self-signed TLS, Proxmox stubbed)")
+        mod.run_server_ssl(port)
+    else:
+        print(f"Mock Redfish daemon on http://0.0.0.0:{port} (Proxmox backend stubbed)")
+        mod.run_server(port)
+
+
+def _self_signed_cert():
+    """Generate a throwaway self-signed cert; return (cert_path, key_path)."""
+    import datetime
+    import tempfile
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime(2020, 1, 1))
+        .not_valid_after(datetime.datetime(2040, 1, 1))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    cdir = tempfile.mkdtemp(prefix="mock-tls-")
+    cert_path = os.path.join(cdir, "server.crt")
+    key_path = os.path.join(cdir, "server.key")
+    with open(cert_path, "wb") as fh:
+        fh.write(cert.public_bytes(serialization.Encoding.PEM))
+    with open(key_path, "wb") as fh:
+        fh.write(
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.TraditionalOpenSSL,
+                serialization.NoEncryption(),
+            )
+        )
+    return cert_path, key_path
 
 
 if __name__ == "__main__":

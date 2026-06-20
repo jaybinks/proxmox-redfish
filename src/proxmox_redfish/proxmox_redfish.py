@@ -1606,6 +1606,26 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         status_code = 200
         self.protocol_version = "HTTP/1.1"
 
+        # Reject unsupported OData $-query parameters with 501 (DSP0266).
+        unsupported = [k for k in query_params if k.startswith("$") and k not in ("$select", "$top", "$skip")]
+        if unsupported:
+            body = json.dumps(
+                {
+                    "error": {
+                        "code": "Base.1.0.QueryNotSupported",
+                        "message": f"Unsupported query parameter(s): {', '.join(unsupported)}.",
+                    }
+                }
+            ).encode("utf-8")
+            self.send_response(501)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("OData-Version", "4.0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # /redfish version document (no auth, per DSP0266).
         if path == "/redfish":
             body = json.dumps({"v1": "/redfish/v1/"}).encode("utf-8")
@@ -1896,6 +1916,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
             if isinstance(response, dict) and isinstance(response.get("@odata.type"), str):
                 schema = response["@odata.type"].lstrip("#").rsplit(".", 1)[0]
                 self.send_header("Link", f"<https://redfish.dmtf.org/schemas/v1/{schema}.json>; rel=describedby")
+        if status_code == 401:
+            self.send_header("WWW-Authenticate", 'Basic realm="Redfish"')
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
@@ -1943,7 +1965,9 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     status_code = 201
                     response = {
                         "@odata.id": f"/redfish/v1/SessionService/Sessions/{token}",
+                        "@odata.type": "#Session.v1_7_0.Session",
                         "Id": token,
+                        "Name": "User Session",
                         "UserName": username,
                     }
             except Exception as e:
@@ -2115,6 +2139,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         if status_code == 202 and isinstance(response, dict) and response.get("@odata.id"):
             self.send_header("Location", response["@odata.id"])
         self.send_header("OData-Version", "4.0")
+        if status_code == 401:
+            self.send_header("WWW-Authenticate", 'Basic realm="Redfish"')
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(json.dumps(response).encode("utf-8"))
@@ -2484,6 +2510,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         if status_code == 202 and isinstance(response, dict) and response.get("@odata.id"):
             self.send_header("Location", response["@odata.id"])
         self.send_header("OData-Version", "4.0")
+        if status_code == 401:
+            self.send_header("WWW-Authenticate", 'Basic realm="Redfish"')
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
@@ -2528,6 +2556,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response_body)))
         self.send_header("OData-Version", "4.0")
+        if status_code == 401:
+            self.send_header("WWW-Authenticate", 'Basic realm="Redfish"')
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
