@@ -38,6 +38,28 @@ Dependencies (all present on a current Proxmox VE host): `python3-requests`,
 `python3-cryptography`; recommends `python3-virt-firmware` (for SecureBoot dynamic
 varstore build). Runs as **root** — SecureBoot enrollment writes the VM efidisk LVM volume.
 
+## TLS / certificates
+
+TLS is **optional** and, when enabled, **reuses the Proxmox certificate** by default —
+the Redfish endpoint presents the same identity as the Proxmox API on `:8006`.
+
+Certificate resolution (in order), controlled by `/etc/proxmox-redfish/params.env`:
+
+1. `REDFISH_USE_TLS="false"` → serve **plain HTTP** (e.g. behind a reverse proxy, or if
+   you simply don't want TLS). No cert needed.
+2. `SSL_CERT_FILE` + `SSL_KEY_FILE` set and present → use those (bring your own cert).
+3. `/etc/pve/local/pveproxy-ssl.{pem,key}` → the **custom** cert an admin uploaded to
+   Proxmox (if any) — identical to what `:8006` serves.
+4. `/etc/pve/local/pve-ssl.{pem,key}` → the **Proxmox node cert** (always present on a
+   PVE host). **This is the default** — same self-signed-by-the-PVE-CA identity as the API.
+
+So on a stock Proxmox host you get TLS using the node cert automatically, with nothing to
+configure. If no cert is resolvable (e.g. a non-PVE test box), the daemon logs a warning
+and falls back to plain HTTP rather than failing.
+
+The daemon runs as root and can read `/etc/pve/local/`. To use a fully custom cert, point
+`SSL_CERT_FILE`/`SSL_KEY_FILE` at it. To turn TLS off entirely, set `REDFISH_USE_TLS="false"`.
+
 ## Remove
 
 ```bash

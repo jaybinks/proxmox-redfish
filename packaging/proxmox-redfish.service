@@ -11,8 +11,10 @@ User=root
 EnvironmentFile=/etc/proxmox-redfish/params.env
 # System python3 + bundled pure-Python deps (proxmoxer, requests-toolbelt). The
 # apt-provided python3-requests / python3-cryptography are on sys.path already.
+# NOTE: run via -m (package), NOT by file path -- a by-path run puts the module's
+# own directory on sys.path and shadows the package, causing a circular import.
 Environment=PYTHONPATH=/opt/proxmox-redfish/src:/opt/proxmox-redfish/vendor
-ExecStart=/usr/bin/python3 /opt/proxmox-redfish/src/proxmox_redfish/proxmox_redfish.py --port 8443
+ExecStart=/usr/bin/python3 -m proxmox_redfish.proxmox_redfish --port 8443
 Restart=on-failure
 RestartSec=5
 

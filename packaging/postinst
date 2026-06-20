@@ -19,14 +19,10 @@ case "$1" in
             cp /opt/proxmox-redfish/config/secureboot_profiles.json.example "$ETC/secureboot_profiles.json"
         fi
 
-        # Generate a self-signed TLS cert for the Redfish endpoint if none present.
-        if [ ! -f "$ETC/server.crt" ] || [ ! -f "$ETC/server.key" ]; then
-            CN="$(hostname -f 2>/dev/null || hostname)"
-            openssl req -x509 -newkey rsa:4096 -nodes -days 825 \
-                -keyout "$ETC/server.key" -out "$ETC/server.crt" \
-                -subj "/CN=${CN}" >/dev/null 2>&1 || true
-            chmod 0640 "$ETC/server.key" 2>/dev/null || true
-        fi
+        # TLS: by default the daemon uses the Proxmox node certificate
+        # (/etc/pve/local/pve-ssl.pem) -- same identity as the :8006 API -- so no cert
+        # is generated here. On a non-PVE host with no cert, the daemon falls back to
+        # plain HTTP (logged). Set REDFISH_USE_TLS=false in params.env to force HTTP.
         chmod 0640 "$ETC/params.env" 2>/dev/null || true
 
         # Sanity-check that the app imports on the system interpreter.

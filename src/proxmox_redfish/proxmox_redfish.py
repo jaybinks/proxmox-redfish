@@ -2746,35 +2746,53 @@ def run_server(port: int = 8000) -> None:
     httpd.serve_forever()
 
 
+# Proxmox node certificate (same cert pveproxy serves on :8006). Present on every
+# PVE host; lets the Redfish endpoint use the exact same TLS identity as the API.
+PVE_CERT = "/etc/pve/local/pve-ssl.pem"
+PVE_KEY = "/etc/pve/local/pve-ssl.key"
+PVE_PROXY_CERT = "/etc/pve/local/pveproxy-ssl.pem"  # custom uploaded cert, if any
+PVE_PROXY_KEY = "/etc/pve/local/pveproxy-ssl.key"
+
+
+def resolve_tls_cert() -> Optional[Tuple[str, str]]:
+    """
+    Pick the TLS cert/key, in order of preference:
+      1. REDFISH_SSL_* / SSL_CERT_FILE + SSL_KEY_FILE if both exist,
+      2. Proxmox custom pveproxy cert (same as the API when an admin uploaded one),
+      3. Proxmox node cert pve-ssl (always present on a PVE host).
+    Returns (cert, key) or None if nothing usable is found.
+    """
+    candidates = [
+        (SSL_CERT_FILE, SSL_KEY_FILE),
+        (PVE_PROXY_CERT, PVE_PROXY_KEY),
+        (PVE_CERT, PVE_KEY),
+    ]
+    for cert, key in candidates:
+        if cert and key and os.path.exists(cert) and os.path.exists(key):
+            return cert, key
+    return None
+
+
 # Server function with configurable SSL certificates
-def run_server_ssl(port: int = 443) -> None:
+def run_server_ssl(port: int = 443, cert_file: Optional[str] = None, key_file: Optional[str] = None) -> None:
+    cert_file = cert_file or SSL_CERT_FILE
+    key_file = key_file or SSL_KEY_FILE
     server_address = ("", port)
     httpd = socketserver.TCPServer(server_address, RedfishRequestHandler)
 
-    # Wrap the socket with SSL
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    if not os.path.exists(cert_file):
+        raise FileNotFoundError(f"SSL certificate file not found: {cert_file}")
+    if not os.path.exists(key_file):
+        raise FileNotFoundError(f"SSL key file not found: {key_file}")
 
-    # Check if certificate files exist
-    if not os.path.exists(SSL_CERT_FILE):
-        raise FileNotFoundError(f"SSL certificate file not found: {SSL_CERT_FILE}")
-    if not os.path.exists(SSL_KEY_FILE):
-        raise FileNotFoundError(f"SSL key file not found: {SSL_KEY_FILE}")
-
-    # Load certificate chain
+    context.load_cert_chain(certfile=cert_file, keyfile=key_file)
     if os.path.exists(SSL_CA_FILE):
-        # Load certificate with CA bundle
-        context.load_cert_chain(certfile=SSL_CERT_FILE, keyfile=SSL_KEY_FILE)
         context.load_verify_locations(cafile=SSL_CA_FILE)
-        logger.info(f"SSL context loaded with certificate: {SSL_CERT_FILE}, key: {SSL_KEY_FILE}, CA: {SSL_CA_FILE}")
-    else:
-        # Load certificate without CA bundle
-        context.load_cert_chain(certfile=SSL_CERT_FILE, keyfile=SSL_KEY_FILE)
-        logger.info(f"SSL context loaded with certificate: {SSL_CERT_FILE}, key: {SSL_KEY_FILE}")
-
     httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
 
-    print(f"Redfish server running on port {port} with SSL...")
-    logger.info(f"Redfish server started on port {port} with SSL certificates")
+    print(f"Redfish server running on port {port} with SSL (cert: {cert_file})...")
+    logger.info("Redfish server started on port %s with TLS cert %s", port, cert_file)
     httpd.serve_forever()
 
 
@@ -2854,18 +2872,23 @@ def main() -> None:
         logger.info(f"Proxmox Host: {proxmox_config['host']}")
         logger.info(f"Redfish Port: {config['redfish']['port']}")
 
-        # Check if SSL certificates are configured
-        ssl_cert = config.get("redfish", {}).get("ssl_cert")
-        ssl_key = config.get("redfish", {}).get("ssl_key")
+        # TLS is optional. REDFISH_USE_TLS=false -> plain HTTP (e.g. behind a reverse
+        # proxy, or where the admin prefers no TLS). Otherwise auto-resolve a cert:
+        # configured -> Proxmox pveproxy -> Proxmox node cert (same as the :8006 API).
+        port = config["redfish"]["port"]
+        use_tls = os.getenv("REDFISH_USE_TLS", "true").lower() not in ("false", "0", "no")
+        resolved = resolve_tls_cert() if use_tls else None
 
-        if ssl_cert and ssl_key:
-            # Start SSL server
-            logger.info("Starting Redfish server with SSL...")
-            run_server_ssl(config["redfish"]["port"])
+        if not use_tls:
+            logger.info("REDFISH_USE_TLS is false; starting Redfish server over plain HTTP on port %s", port)
+            run_server(port)
+        elif resolved:
+            cert, key = resolved
+            logger.info("Starting Redfish server with TLS (cert: %s) on port %s", cert, port)
+            run_server_ssl(port, cert, key)
         else:
-            # Start regular HTTP server
-            logger.info("Starting Redfish server without SSL...")
-            run_server(config["redfish"]["port"])
+            logger.warning("TLS requested but no usable certificate found; falling back to plain HTTP on port %s", port)
+            run_server(port)
 
     except KeyboardInterrupt:
         logger.info("Shutting down Proxmox Redfish Daemon...")
