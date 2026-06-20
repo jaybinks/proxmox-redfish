@@ -1578,6 +1578,16 @@ def get_virtual_media(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], 
         # Inserted is True only if ide2 is present, is a cdrom, and not 'none,media=cdrom'
         cd_configured = "ide2" in config and "media=cdrom" in config["ide2"] and not config["ide2"].startswith("none")
 
+        # Surface what is mounted so a client can read it back (Redfish Image/ImageName).
+        # Proxmox ide2 looks like "local:iso/foo.iso,media=cdrom" -> volid before the comma.
+        image = None
+        image_name = None
+        if cd_configured:
+            volid = config["ide2"].split(",", 1)[0].strip()
+            if volid and volid.lower() != "none":
+                image = volid
+                image_name = volid.split("/")[-1]
+
         response = {
             "@odata.id": f"/redfish/v1/Managers/{vm_id}/VirtualMedia/Cd",
             "@odata.type": "#VirtualMedia.v1_6_0.VirtualMedia",
@@ -1586,6 +1596,8 @@ def get_virtual_media(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], 
             "MediaTypes": ["CD", "DVD"],
             "ConnectedVia": "Applet",
             "Inserted": cd_configured,
+            "Image": image,
+            "ImageName": image_name,
             "WriteProtected": True,
             "Actions": {
                 "#VirtualMedia.InsertMedia": {
@@ -1745,7 +1757,7 @@ def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tupl
         boot_list = []
         if isinstance(raw_boot, str) and raw_boot:
             boot_list = raw_boot.replace("order=", "").split(";")
-            boot_list = [b for b in boot_list if b]
+            boot_list = [b.strip() for b in boot_list if b.strip()]
         boot_field = {
             "BootSourceOverrideEnabled": "Once",  # or "Continuous"/"Disabled" as appropriate
             "BootSourceOverrideTarget": "None",  # Could be "Pxe", "Cd", "Hdd", etc.

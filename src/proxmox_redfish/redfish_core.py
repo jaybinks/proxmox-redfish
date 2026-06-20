@@ -36,7 +36,7 @@ REDFISH_VERSION = "1.18.0"
 
 # This daemon's own software version (kept in sync with the Debian package version).
 # Reported via the `Server` HTTP header, ServiceRoot Oem, and Manager.FirmwareVersion.
-APP_VERSION = "0.2.7"
+APP_VERSION = "0.2.8"
 
 
 def _resolve_build_commit() -> Optional[str]:
@@ -81,7 +81,23 @@ def full_version() -> str:
 
 
 def service_root_uuid() -> str:
-    return os.getenv("REDFISH_SERVICE_UUID", "00000000-0000-0000-0000-000000000000")
+    """
+    Stable service UUID (inventory tools key on it). REDFISH_SERVICE_UUID wins; else
+    derive a deterministic per-node UUID from /etc/machine-id (present on every
+    systemd host); else all-zeros as a last resort.
+    """
+    env = os.getenv("REDFISH_SERVICE_UUID")
+    if env:
+        return env
+    try:
+        with open("/etc/machine-id") as fh:
+            mid = fh.read().strip()
+        if len(mid) >= 32:
+            h = mid[:32]
+            return f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+    except OSError:
+        pass
+    return "00000000-0000-0000-0000-000000000000"
 
 
 # --------------------------------------------------------------------------- #
