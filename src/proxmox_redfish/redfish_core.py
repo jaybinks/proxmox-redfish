@@ -62,8 +62,73 @@ def build_service_root() -> Dict[str, Any]:
         "CertificateService": {"@odata.id": "/redfish/v1/CertificateService"},
         "Registries": {"@odata.id": "/redfish/v1/Registries"},
         "JsonSchemas": {"@odata.id": "/redfish/v1/JsonSchemas"},
+        # Declare exactly which OData query parameters this service honors
+        # (DSP0266: clients must consult this before using query params).
+        "ProtocolFeaturesSupported": {
+            "ExpandQuery": {
+                "ExpandAll": False,
+                "Levels": False,
+                "Links": False,
+                "NoLinks": False,
+            },
+            "SelectQuery": True,
+            "FilterQuery": False,
+            "OnlyMemberQuery": False,
+            "ExcerptQuery": False,
+        },
         "Links": {"Sessions": {"@odata.id": "/redfish/v1/SessionService/Sessions"}},
     }
+
+
+def _to_int(value: Any) -> Any:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def apply_query(body: Dict[str, Any], params: Dict[str, str], path: str) -> Dict[str, Any]:
+    """
+    Apply the supported OData query params ($select, $top, $skip) to a response body.
+
+    Only the parameters declared in ServiceRoot.ProtocolFeaturesSupported are honored;
+    $expand/$filter are intentionally not implemented (declared unsupported). Collection
+    pagination emits Members@odata.nextLink when results are truncated.
+    """
+    if not isinstance(body, dict):
+        return body
+
+    # $select -- project to the requested top-level properties (+ required odata keys).
+    sel = params.get("$select")
+    if sel:
+        keep = {k.strip() for k in sel.split(",") if k.strip()}
+        required = {k for k in body if k.startswith("@odata")} | {
+            "Id",
+            "Members",
+            "Members@odata.count",
+            "Members@odata.nextLink",
+        }
+        body = {k: v for k, v in body.items() if k in keep or k in required}
+
+    # $top / $skip pagination on a collection's Members.
+    members = body.get("Members")
+    if isinstance(members, list):
+        total = len(members)
+        skip = _to_int(params.get("$skip")) or 0
+        top = _to_int(params.get("$top"))
+        skip = max(0, skip)
+        window = members[skip:]
+        next_skip = None
+        if top is not None and top >= 0 and len(window) > top:
+            window = window[:top]
+            next_skip = skip + top
+        body["Members"] = window
+        body["Members@odata.count"] = total
+        if next_skip is not None:
+            sep = "&" if "?" in path else "?"
+            base = path.split("?")[0]
+            body["Members@odata.nextLink"] = f"{base}{sep}$skip={next_skip}" + (f"&$top={top}" if top else "")
+    return body
 
 
 def build_odata_service_doc() -> Dict[str, Any]:

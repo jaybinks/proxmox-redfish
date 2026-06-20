@@ -1530,7 +1530,11 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         headers_str = "\n".join(f"{k}: {v}" for k, v in self.headers.items())
         logger.debug(f"GET Request: path={self.path}, headers=\n{headers_str}")
 
-        path = self.path.rstrip("/")
+        from urllib.parse import parse_qs, urlparse
+
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path.rstrip("/")
+        query_params = {k: v[0] for k, v in parse_qs(parsed_url.query).items()}
         response: Union[Dict[str, Any], Tuple[Dict[str, Any], int]] = {}
         status_code = 200
         self.protocol_version = "HTTP/1.1"
@@ -1767,6 +1771,10 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                 else:
                     status_code = 404
                     response = {"error": {"code": "Base.1.0.GeneralError", "message": f"Resource not found: {path}"}}
+
+        # Apply supported OData query params ($select/$top/$skip + pagination).
+        if status_code == 200 and isinstance(response, dict) and query_params:
+            response = redfish_core.apply_query(response, query_params, self.path)
 
         response_body = json.dumps(response).encode("utf-8")
         self.send_response(status_code)
