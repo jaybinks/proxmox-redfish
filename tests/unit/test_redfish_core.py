@@ -196,3 +196,14 @@ class TestPowerCycle:
         assert code == 202
         qemu.status.stop.post.assert_not_called()
         qemu.status.start.post.assert_called_once()
+
+
+class TestVersionReporting:
+    def test_service_root_reports_app_version(self):
+        root = redfish_core.build_service_root()
+        assert root["Oem"]["Proxmox"]["Version"] == redfish_core.APP_VERSION
+        assert root["Vendor"] == "Proxmox"
+        assert root["Product"] == "proxmox-redfish"
+
+    def test_app_version_is_set(self):
+        assert redfish_core.APP_VERSION and "." in redfish_core.APP_VERSION

@@ -1621,6 +1621,9 @@ def get_manager(proxmox: ProxmoxAPI, manager_id: int) -> Union[Dict[str, Any], T
             "Name": f"Manager for VM {vm_id}",
             "ManagerType": "BMC",
             "Status": {"State": "Enabled", "Health": "OK"},
+            # The daemon's own version (standard place for a BMC software version).
+            "FirmwareVersion": redfish_core.APP_VERSION,
+            "Model": "proxmox-redfish",
             "VirtualMedia": {"@odata.id": f"/redfish/v1/Managers/{manager_id}/VirtualMedia"},
             # Serial console connection info (the stream itself is via Proxmox 'qm terminal'
             # / the VM serial socket, not inline Redfish JSON).
@@ -1795,6 +1798,11 @@ def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tupl
 
 # Custom request handler
 class RedfishRequestHandler(BaseHTTPRequestHandler):
+    # Identify the daemon + its version in the Server header on every response
+    # (e.g. "Server: proxmox-redfish/0.2.6"). `curl -I` / any client can read it.
+    server_version = f"proxmox-redfish/{redfish_core.APP_VERSION}"
+    sys_version = ""
+
     def do_GET(self) -> None:
         # Log request details (credential-bearing headers redacted).
         logger.debug("GET Request: path=%s, headers=\n%s", self.path, _redact_headers(self.headers))

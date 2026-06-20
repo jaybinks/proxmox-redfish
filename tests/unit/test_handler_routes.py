@@ -313,3 +313,16 @@ class HandlerRouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServerHeaderTest(unittest.TestCase):
+    def test_server_header_carries_version(self):
+        from proxmox_redfish import redfish_core
+
+        h = make_handler(path="/redfish/v1")
+        with patch("proxmox_redfish.proxmox_redfish.validate_token", return_value=(True, "u")), patch(
+            "proxmox_redfish.proxmox_redfish.get_proxmox_api", return_value=Mock()
+        ):
+            h.do_GET()
+        raw_resp = h.wfile.getvalue().decode()
+        assert f"proxmox-redfish/{redfish_core.APP_VERSION}" in raw_resp

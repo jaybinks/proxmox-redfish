@@ -34,6 +34,10 @@ ODATA_TYPES = {
 # Redfish protocol version this service targets.
 REDFISH_VERSION = "1.18.0"
 
+# This daemon's own software version (kept in sync with the Debian package version).
+# Reported via the `Server` HTTP header, ServiceRoot Oem, and Manager.FirmwareVersion.
+APP_VERSION = "0.2.6"
+
 
 def service_root_uuid() -> str:
     return os.getenv("REDFISH_SERVICE_UUID", "00000000-0000-0000-0000-000000000000")
@@ -62,6 +66,9 @@ def build_service_root() -> Dict[str, Any]:
         "CertificateService": {"@odata.id": "/redfish/v1/CertificateService"},
         "Registries": {"@odata.id": "/redfish/v1/Registries"},
         "JsonSchemas": {"@odata.id": "/redfish/v1/JsonSchemas"},
+        "Vendor": "Proxmox",
+        "Product": "proxmox-redfish",
+        "Oem": {"Proxmox": {"Version": APP_VERSION}},
         # Declare exactly which OData query parameters this service honors
         # (DSP0266: clients must consult this before using query params).
         "ProtocolFeaturesSupported": {
