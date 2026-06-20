@@ -66,7 +66,7 @@ DB_RESET_KEYS_TYPES = ["ResetAllKeysToDefault", "DeleteAllKeys"]
 # Configuration: profiles & sidecar state
 # --------------------------------------------------------------------------- #
 def _profiles_path() -> str:
-    return os.getenv("REDFISH_SB_PROFILES", "/opt/proxmox-redfish/config/secureboot_profiles.json")
+    return os.getenv("REDFISH_SB_PROFILES", "/etc/proxmox-redfish/secureboot_profiles.json")
 
 
 def load_profiles() -> Dict[str, Any]:

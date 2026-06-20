@@ -45,7 +45,7 @@ VMID_MAX = 999999999
 
 def varstore_dir() -> str:
     """Allowlisted directory that profile varstore images must live under (INV-10)."""
-    return os.getenv("REDFISH_SB_VARSTORE_DIR", "/opt/proxmox-redfish/varstores")
+    return os.getenv("REDFISH_SB_VARSTORE_DIR", "/var/lib/proxmox-redfish/varstores")
 
 
 def state_dir() -> str:
