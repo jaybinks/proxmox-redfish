@@ -1,16 +1,15 @@
-# Core dependencies
+# Runtime dependencies for the proxmox-redfish daemon.
+# Lower bounds are chosen to include security fixes; upper bounds stay open so
+# environments keep receiving patch/minor security updates. Dev/test tooling lives
+# in requirements-dev.txt, not here.
+
+# Core
 proxmoxer>=2.0.0
-requests>=2.25.0
-
-# Optional dependencies for enhanced functionality
-requests-toolbelt>=0.9.0  # For large file uploads
-
-# Development dependencies (optional)
-pytest>=6.0.0
-pytest-cov>=2.10.0
-black>=21.0.0
-flake8>=3.8.0
-isort>=5.0.0
-mypy>=0.900
-# Optional: full X.509 validation for SecureBoot certificate enrollment
-cryptography>=41.0.0
+# requests 2.32.3 ships the CVE-2024-35195 (Session.verify) and CVE-2024-47081
+# (.netrc credential leak) fixes and pulls a patched urllib3>=2.
+requests>=2.32.3
+# Large file uploads (ISO/virtual-media).
+requests-toolbelt>=1.0.0
+# X.509 validation for SecureBoot certificate enrollment. 42.0.4+ clears the
+# NULL-deref / PKCS7 CVEs (CVE-2023-50782, CVE-2024-26130, GHSA-3ww4-gg4f-jr7f).
+cryptography>=42.0.4

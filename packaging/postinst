@@ -8,10 +8,14 @@ STATE=/var/lib/proxmox-redfish
 
 case "$1" in
     configure)
-        # Runtime directories.
+        # Runtime directories. The daemon runs as root; lock these to root only
+        # (0750) so secureboot state, sidecars, and varstore images are not world- or
+        # group-readable.
         mkdir -p "$STATE/secureboot" "$STATE/varstores"
-        chmod 0750 "$STATE" "$STATE/secureboot"
+        chown root:root "$STATE" "$STATE/secureboot" "$STATE/varstores" 2>/dev/null || true
+        chmod 0750 "$STATE" "$STATE/secureboot" "$STATE/varstores"
         mkdir -p "$ETC"
+        chmod 0750 "$ETC" 2>/dev/null || true
 
         # Ship the SecureBoot profile catalog example if no live one exists.
         if [ ! -f "$ETC/secureboot_profiles.json" ] && \
@@ -23,7 +27,15 @@ case "$1" in
         # (/etc/pve/local/pve-ssl.pem) -- same identity as the :8006 API -- so no cert
         # is generated here. On a non-PVE host with no cert, the daemon falls back to
         # plain HTTP (logged). Set REDFISH_USE_TLS=false in params.env to force HTTP.
-        chmod 0640 "$ETC/params.env" 2>/dev/null || true
+        #
+        # params.env holds PROXMOX_PASSWORD and Loki credentials: make it root-only
+        # (0600), never group/world readable.
+        chown root:root "$ETC/params.env" 2>/dev/null || true
+        chmod 0600 "$ETC/params.env" 2>/dev/null || true
+        # If an admin placed a TLS private key under $ETC, lock it down too.
+        for keyf in "$ETC"/*.key; do
+            [ -f "$keyf" ] && chmod 0600 "$keyf" 2>/dev/null || true
+        done
 
         # Sanity-check that the app imports on the system interpreter.
         if ! PYTHONPATH=/opt/proxmox-redfish/src:/opt/proxmox-redfish/vendor \
