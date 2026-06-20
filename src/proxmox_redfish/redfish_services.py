@@ -313,6 +313,18 @@ def create_subscription(data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
             {"error": {"code": "Base.1.0.PropertyValueNotInList", "message": "Destination must be http(s)."}},
             400,
         )
+    # Reject conflicting/unsupported Protocol values (only Redfish is supported).
+    protocol = data.get("Protocol", "Redfish")
+    if protocol != "Redfish":
+        return (
+            {
+                "error": {
+                    "code": "Base.1.0.PropertyValueNotInList",
+                    "message": f"Unsupported subscription Protocol {protocol!r}; only 'Redfish' is supported.",
+                }
+            },
+            400,
+        )
     import hashlib
 
     sid = hashlib.sha256(dest.encode("utf-8")).hexdigest()[:12]

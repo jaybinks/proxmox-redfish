@@ -1601,10 +1601,25 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
 
         parsed_url = urlparse(self.path)
         path = parsed_url.path.rstrip("/")
-        query_params = {k: v[0] for k, v in parse_qs(parsed_url.query).items()}
+        query_params = {k: v[0] for k, v in parse_qs(parsed_url.query, keep_blank_values=True).items()}
         response: Union[Dict[str, Any], Tuple[Dict[str, Any], int]] = {}
         status_code = 200
         self.protocol_version = "HTTP/1.1"
+
+        # A request with an OData-Version other than 4.0 must be rejected (DSP0266).
+        req_odata_ver = self.headers.get("OData-Version")
+        if req_odata_ver is not None and req_odata_ver != "4.0":
+            body = json.dumps(
+                {"error": {"code": "Base.1.0.PreconditionFailed", "message": "Unsupported OData-Version."}}
+            ).encode("utf-8")
+            self.send_response(412)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("OData-Version", "4.0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         # Reject unsupported OData $-query parameters with 501 (DSP0266).
         unsupported = [k for k in query_params if k.startswith("$") and k not in ("$select", "$top", "$skip")]
@@ -1912,6 +1927,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         if status_code == 200:
             self.send_header("ETag", 'W/"' + hashlib.sha256(response_body).hexdigest()[:16] + '"')
             self.send_header("Cache-Control", "no-cache")
+            self.send_header("Allow", "GET, HEAD")
             # Link: rel=describedby -> the JSON Schema for this resource type.
             if isinstance(response, dict) and isinstance(response.get("@odata.type"), str):
                 schema = response["@odata.type"].lstrip("#").rsplit(".", 1)[0]
@@ -1943,6 +1959,10 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         )
 
         path = self.path
+        # POST to a collection's Members property is equivalent to POST to the
+        # collection itself (DSP0266).
+        if path.endswith("/Members"):
+            path = path[: -len("/Members")]
         response: Union[Dict[str, Any], Tuple[Dict[str, Any], int]] = {}
         token = None
         status_code = 200
@@ -2119,10 +2139,13 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                             }
                         else:
                             response, status_code = result  # type: ignore[misc]
+                    elif self._resource_exists(path):
+                        status_code = 405
+                        response = {"error": {"code": "Base.1.0.ActionNotSupported", "message": "Method not allowed."}}
                     else:
                         status_code = 404
                         response = {
-                            "error": {"code": "Base.1.0.GeneralError", "message": f"Resource not found: {path}"}
+                            "error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Resource not found: {path}"}
                         }
 
         # Convert response to JSON and calculate its length
@@ -2135,12 +2158,14 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         if token and path == "/redfish/v1/SessionService/Sessions":
             self.send_header("X-Auth-Token", token)
             self.send_header("Location", f"/redfish/v1/SessionService/Sessions/{token}")
-        # Async actions: point Location at the resolvable Task resource.
-        if status_code == 202 and isinstance(response, dict) and response.get("@odata.id"):
+        # Created/async resources: Location -> the new/task resource URI.
+        elif status_code in (201, 202) and isinstance(response, dict) and response.get("@odata.id"):
             self.send_header("Location", response["@odata.id"])
         self.send_header("OData-Version", "4.0")
         if status_code == 401:
             self.send_header("WWW-Authenticate", 'Basic realm="Redfish"')
+        if status_code == 405:
+            self.send_header("Allow", self.ALLOWED_METHODS)
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(json.dumps(response).encode("utf-8"))
@@ -2495,6 +2520,9 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     logger.error("Invalid JSON payload")
                     status_code = 400
                     response = {"error": {"code": "Base.1.0.GeneralError", "message": "Invalid JSON payload"}}
+            elif self._resource_exists(path):
+                status_code = 405
+                response = {"error": {"code": "Base.1.0.ActionNotSupported", "message": "Method not allowed."}}
             else:
                 logger.error(f"Resource not found: {path}")
                 status_code = 404
@@ -2512,6 +2540,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_header("OData-Version", "4.0")
         if status_code == 401:
             self.send_header("WWW-Authenticate", 'Basic realm="Redfish"')
+        if status_code == 405:
+            self.send_header("Allow", self.ALLOWED_METHODS)
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
@@ -2547,6 +2577,9 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                 }
             else:
                 response, status_code = result  # type: ignore[misc]
+        elif self._resource_exists(path):
+            status_code = 405
+            response = {"error": {"code": "Base.1.0.ActionNotSupported", "message": "Method not allowed."}}
         else:
             status_code = 404
             response = {"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Resource not found: {path}"}}
@@ -2558,6 +2591,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_header("OData-Version", "4.0")
         if status_code == 401:
             self.send_header("WWW-Authenticate", 'Basic realm="Redfish"')
+        if status_code == 405:
+            self.send_header("Allow", self.ALLOWED_METHODS)
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
@@ -2565,6 +2600,41 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
 
     # Allowed HTTP methods advertised for any Redfish resource.
     ALLOWED_METHODS = "GET, HEAD, POST, PATCH, DELETE, OPTIONS"
+
+    # Anchored patterns for the GET-serviceable resource tree. Used to answer "does
+    # this resource exist?" so an unsupported method returns 405 (not 404) on a real
+    # resource, per DSP0266.
+    _GET_PATTERNS = [
+        re.compile(p)
+        for p in (
+            r"/redfish/v1",
+            r"/redfish/v1/odata",
+            r"/redfish/v1/Systems",
+            r"/redfish/v1/Systems/\d+",
+            r"/redfish/v1/Systems/\d+/Bios(/SMBIOS)?",
+            r"/redfish/v1/Systems/\d+/Processors(/.+)?",
+            r"/redfish/v1/Systems/\d+/Storage(/.+)?",
+            r"/redfish/v1/Systems/\d+/EthernetInterfaces(/.+)?",
+            r"/redfish/v1/Systems/\d+/Memory(/.+)?",
+            r"/redfish/v1/Systems/\d+/SecureBoot(/.+)?",
+            r"/redfish/v1/Chassis",
+            r"/redfish/v1/Chassis/\d+(/(Power|Thermal))?",
+            r"/redfish/v1/Managers(/\d+(/VirtualMedia(/Cd)?)?)?",
+            r"/redfish/v1/SessionService(/Sessions(/.+)?)?",
+            r"/redfish/v1/TaskService(/Tasks(/.+)?)?",
+            r"/redfish/v1/AccountService(/(Accounts|Roles)(/.+)?)?",
+            r"/redfish/v1/EventService(/Subscriptions(/.+)?)?",
+            r"/redfish/v1/UpdateService",
+            r"/redfish/v1/CertificateService(/CertificateLocations)?",
+            r"/redfish/v1/Registries",
+            r"/redfish/v1/JsonSchemas",
+        )
+    ]
+
+    def _resource_exists(self, path: str) -> bool:
+        """True if `path` is a GET-serviceable resource (so a bad method -> 405, not 404)."""
+        p = path.rstrip("/")
+        return any(rx.fullmatch(p) for rx in self._GET_PATTERNS)
 
     def do_OPTIONS(self) -> None:
         """Advertise supported methods (DSP0266 requires an Allow header)."""
@@ -2582,7 +2652,10 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("OData-Version", "4.0")
-        self.send_header("Allow", self.ALLOWED_METHODS)
+        self.send_header("Allow", "GET, HEAD")
+        self.send_header("Cache-Control", "no-cache")
+        # rel=describedby is required on HEAD too; emit a generic schema link.
+        self.send_header("Link", "<https://redfish.dmtf.org/schemas/v1/redfish-schema-v1.json>; rel=describedby")
         self.send_header("Connection", "close")
         self.end_headers()
 
