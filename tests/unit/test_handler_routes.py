@@ -218,6 +218,28 @@ class HandlerRouteTests(unittest.TestCase):
         self.assertIn("204", status_line(h2))
         self.assertNotIn(sid, rs.subscriptions)
 
+    # HTTP method conformance ----------------------------------------------
+    def test_options_advertises_allow(self):
+        h = make_handler(method="OPTIONS", path="/redfish/v1/Systems/100")
+        h.do_OPTIONS()
+        self.assertIn("204", status_line(h))
+        self.assertTrue(header_present(h, "Allow"))
+
+    def test_put_is_405(self):
+        h = make_handler(method="PUT", path="/redfish/v1/Systems/100")
+        h.do_PUT()
+        self.assertIn("405", status_line(h))
+        self.assertTrue(header_present(h, "Allow"))
+        self.assertEqual(body_json(h)["error"]["code"], "Base.1.0.ActionNotSupported")
+
+    def test_head_has_headers_no_body(self):
+        h = make_handler(method="HEAD", path="/redfish/v1")
+        h.do_HEAD()
+        self.assertIn("200", status_line(h))
+        self.assertTrue(header_present(h, "OData-Version"))
+        # no JSON body on HEAD
+        self.assertEqual(raw(h).split("\r\n\r\n", 1)[1], "")
+
 
 if __name__ == "__main__":
     unittest.main()

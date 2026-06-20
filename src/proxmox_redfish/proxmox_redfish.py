@@ -100,7 +100,7 @@ sessions: Dict[str, Dict[str, Any]] = {}
 iso_operation_lock = threading.Lock()
 
 # File locks for individual ISO files
-iso_file_locks = {}
+iso_file_locks: Dict[str, threading.Lock] = {}
 iso_file_locks_lock = threading.Lock()
 
 
@@ -2347,6 +2347,61 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(response_body)
         logger.debug(f"DELETE Response: path={self.path}, status={status_code}")
+
+    # Allowed HTTP methods advertised for any Redfish resource.
+    ALLOWED_METHODS = "GET, HEAD, POST, PATCH, DELETE, OPTIONS"
+
+    def do_OPTIONS(self) -> None:
+        """Advertise supported methods (DSP0266 requires an Allow header)."""
+        self.protocol_version = "HTTP/1.1"
+        self.send_response(204)
+        self.send_header("Allow", self.ALLOWED_METHODS)
+        self.send_header("OData-Version", "4.0")
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+    def do_HEAD(self) -> None:
+        """HEAD mirrors GET headers without a body."""
+        self.protocol_version = "HTTP/1.1"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("OData-Version", "4.0")
+        self.send_header("Allow", self.ALLOWED_METHODS)
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+    def do_PUT(self) -> None:
+        """Redfish resources here are not replaceable via PUT -> 405 with Allow."""
+        self._method_not_allowed()
+
+    def _method_not_allowed(self) -> None:
+        self.protocol_version = "HTTP/1.1"
+        body = json.dumps(
+            {
+                "error": {
+                    "code": "Base.1.0.ActionNotSupported",
+                    "message": "The HTTP method is not allowed on this resource.",
+                    "@Message.ExtendedInfo": [
+                        {
+                            "@odata.type": "#Message.v1_1_1.Message",
+                            "MessageId": "Base.1.0.ActionNotSupported",
+                            "Message": f"Allowed methods: {self.ALLOWED_METHODS}.",
+                            "MessageSeverity": "Warning",
+                            "Resolution": "Use a supported HTTP method.",
+                        }
+                    ],
+                }
+            }
+        ).encode("utf-8")
+        self.send_response(405)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Allow", self.ALLOWED_METHODS)
+        self.send_header("OData-Version", "4.0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
 
 
 # Server function (unchanged)

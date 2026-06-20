@@ -154,6 +154,7 @@ Behaviours a conformant client could observe as non-standard:
 | Status codes (200/201/202/4xx/5xx) | ✅ | 202 + resolvable `Location` for async ops. |
 | Async Task lifecycle (`Location` → `GET Task`) | ✅ | TaskService maps Proxmox UPIDs; 202 `Location` resolves to `GET /TaskService/Tasks/{upid}`. |
 | `OData-Version: 4.0` header | ✅ | Emitted on all responses. |
+| HTTP method handling | ✅ | `OPTIONS` (204 + `Allow`), `HEAD`, and `405 + Allow` for unsupported methods (e.g. PUT). |
 | ETag / If-Match concurrency | 🟡 | Weak `ETag` emitted on GET 200; `If-Match` not yet honored on PATCH. |
 | OData query (`$expand`, `$select`, `$filter`) | ❌ | |
 | Collection pagination (`Members@odata.nextLink`) | ❌ | Collections small; returned whole. |

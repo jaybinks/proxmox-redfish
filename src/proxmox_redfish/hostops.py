@@ -345,7 +345,7 @@ def locate_efidisk(proxmox: Any, vmid: Any) -> EfiDisk:
 def vm_is_running(proxmox: Any, vmid: int) -> bool:
     status = proxmox.nodes(PROXMOX_NODE).qemu(vmid).status.current.get() or {}
     state = status.get("qmpstatus") or status.get("status")
-    return state == "running"
+    return bool(state == "running")
 
 
 def _wait_stopped(proxmox: Any, vmid: int, timeout: int = 60) -> None:
