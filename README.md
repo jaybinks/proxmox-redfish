@@ -148,6 +148,54 @@ Configuration lives in `/etc/proxmox-redfish/params.env` (package install) or
 > `PROXMOX_USER`/`PROXMOX_PASSWORD` in `params.env` are a fallback. Use a
 > [least-privilege Proxmox service account](docs/admins/README.md) in production.
 
+### Authenticating with a Proxmox API token (recommended)
+
+Tokens are revocable and avoid putting a password on the wire. Create one on the Proxmox host:
+
+```bash
+# Full-access token (inherits the user's privileges):
+pveum user token add root@pam redfish --privsep 0 -comment "redfish"
+#  -> prints the token id (root@pam!redfish) and a one-time secret (a UUID)
+
+# Or least-privilege, read-only on one VM:
+pveum user token add svc@pve readonly --privsep 1
+pveum acl modify /vms/4000 -token 'svc@pve!readonly' -role PVEAuditor
+```
+
+Pass the token as Basic auth — **username = the token id**, **password = the secret**:
+
+```bash
+TOKEN='root@pam!redfish'
+SECRET='xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+
+curl -k -u "$TOKEN:$SECRET" https://<host>:8443/redfish/v1/Systems | jq
+curl -k -u "$TOKEN:$SECRET" https://<host>:8443/redfish/v1/Systems/4000 | jq
+```
+
+Client libraries take the same id/secret as username/password:
+
+```python
+# OpenStack sushy
+import sushy
+conn = sushy.Sushy("https://<host>:8443/redfish/v1",
+                   username="root@pam!redfish", password=SECRET, verify=False)
+
+# DMTF python-redfish-library
+import redfish
+c = redfish.redfish_client("https://<host>:8443",
+                           username="root@pam!redfish", password=SECRET)
+c.login(auth="basic")
+```
+
+```bash
+# DMTF redfishtool
+redfishtool -r <host>:8443 -S Always -u 'root@pam!redfish' -p "$SECRET" Systems list
+```
+
+Roles needed: **read** operations → `PVEAuditor`; **power / boot / virtual media** →
+`PVEVMAdmin` (or `VM.PowerMgmt` + `VM.Config.*`); **Secure Boot enrollment** runs host-side as
+root. Revoke a token with `pveum user token remove root@pam redfish`.
+
 ## Redfish API coverage
 
 The daemon implements the full provisioning-critical Redfish surface plus the surrounding
