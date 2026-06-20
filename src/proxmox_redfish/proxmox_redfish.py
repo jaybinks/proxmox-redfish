@@ -197,21 +197,60 @@ def handle_proxmox_error(
     }, status_code
 
 
+def _client_credentials(headers: Any) -> Optional[Tuple[str, str]]:
+    """
+    Extract the CALLER's Proxmox credentials from the request (Basic auth, or the
+    stored session for a token). Returns (username, password) or None.
+    """
+    auth_header = headers.get("Authorization")
+    if auth_header and auth_header.startswith("Basic "):
+        try:
+            creds = base64.b64decode(auth_header.split(" ")[1]).decode("utf-8")
+            username, password = creds.split(":", 1)
+            # Default realm only for a plain username (not an API-token id like user@pam!tok).
+            if "@" not in username and "!" not in username:
+                username += "@pam"
+            return username, password
+        except Exception:  # noqa: BLE001
+            return None
+    token = headers.get("X-Auth-Token")
+    if token and token in sessions:
+        session = sessions[token]
+        return session.get("username"), session.get("password")
+    return None
+
+
 def get_proxmox_api(headers: Any) -> ProxmoxAPI:
     valid, message = validate_token(headers)
     if not valid:
         raise Exception(f"Authentication failed: {message}")
 
-    # Always use the root session for Proxmox operations
-    # The user authentication is handled in validate_token
+    # Use the CALLER's credentials for Proxmox operations (validated above), so the
+    # daemon's own PROXMOX_USER/PROXMOX_PASSWORD need not be a real account -- the
+    # default PROXMOX_PASSWORD=CHANGE_ME works. Fall back to the configured account
+    # only if the request carried no usable credentials.
+    creds = _client_credentials(headers)
+    user, password = creds if creds and creds[0] and creds[1] else (PROXMOX_USER, PROXMOX_PASSWORD)
     try:
-        proxmox = ProxmoxAPI(
-            PROXMOX_HOST,
-            user=PROXMOX_USER,
-            password=PROXMOX_PASSWORD,
-            verify_ssl=VERIFY_SSL,
-            timeout=1800,  # 30 minutes timeout for large uploads
-        )
+        if "!" in user:
+            # Proxmox API token: user@realm!tokenid : <secret-uuid>
+            base_user, token_name = user.split("!", 1)
+            proxmox = ProxmoxAPI(
+                PROXMOX_HOST,
+                user=base_user,
+                token_name=token_name,
+                token_value=password,
+                verify_ssl=VERIFY_SSL,
+                timeout=1800,
+            )
+        else:
+            proxmox = ProxmoxAPI(
+                PROXMOX_HOST,
+                user=user,
+                password=password,
+                verify_ssl=VERIFY_SSL,
+                timeout=1800,  # 30 minutes for large uploads
+            )
         return proxmox
     except Exception as e:
         raise Exception(f"Failed to connect to Proxmox API: {str(e)}")
