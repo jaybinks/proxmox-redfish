@@ -212,7 +212,6 @@ def build_sessions_collection(sessions: Dict[str, Dict[str, Any]]) -> Dict[str, 
     return {
         "@odata.id": "/redfish/v1/SessionService/Sessions",
         "@odata.type": ODATA_TYPES["SessionCollection"],
-        "Name": "Session Collection",
         "Members@odata.count": len(members),
         "Members": members,
     }
@@ -332,7 +331,6 @@ def build_task_collection(proxmox: Any) -> Tuple[Dict[str, Any], int]:
         {
             "@odata.id": "/redfish/v1/TaskService/Tasks",
             "@odata.type": ODATA_TYPES["TaskCollection"],
-            "Name": "Task Collection",
             "Members@odata.count": len(members),
             "Members": members,
         },
@@ -357,7 +355,6 @@ def build_memory_collection(proxmox: Any, vm_id: int) -> Tuple[Dict[str, Any], i
         {
             "@odata.id": base,
             "@odata.type": ODATA_TYPES["MemoryCollection"],
-            "Name": "Memory Collection",
             "Members@odata.count": 1,
             "Members": [{"@odata.id": f"{base}/DRAM"}],
         },

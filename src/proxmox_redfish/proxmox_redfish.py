@@ -1033,7 +1033,6 @@ def get_processor_collection(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str,
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Processors",
             "@odata.type": "#ProcessorCollection.ProcessorCollection",
-            "Name": "Processor Collection",
             "Members": [{"@odata.id": f"/redfish/v1/Systems/{vm_id}/Processors/CPU1"}],
             "Members@odata.count": 1,
         }
@@ -1074,7 +1073,6 @@ def get_storage_collection(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, A
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage",
             "@odata.type": "#StorageCollection.StorageCollection",
-            "Name": "Storage Collection",
             "Members": [{"@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/1"}],
             "Members@odata.count": 1,
         }
@@ -1219,7 +1217,6 @@ def get_volume_collection(
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Volumes",
             "@odata.type": "#VolumeCollection.VolumeCollection",
-            "Name": "Volume Collection",
             "Members": volumes,
             "Members@odata.count": len(volumes),
         }
@@ -1285,7 +1282,6 @@ def get_controller_collection(
         response = {
             "@odata.id": base,
             "@odata.type": "#StorageControllerCollection.StorageControllerCollection",
-            "Name": "Controller Collection",
             "Members": controllers,
             "Members@odata.count": len(controllers),
         }
@@ -1343,7 +1339,6 @@ def get_ethernet_interface_collection(
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/EthernetInterfaces",
             "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
-            "Name": "Ethernet Interface Collection",
             "Members": interfaces,
             "Members@odata.count": len(interfaces),
         }
@@ -1611,6 +1606,18 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         status_code = 200
         self.protocol_version = "HTTP/1.1"
 
+        # /redfish version document (no auth, per DSP0266).
+        if path == "/redfish":
+            body = json.dumps({"v1": "/redfish/v1/"}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("OData-Version", "4.0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # $metadata is XML (CSDL) and is served without auth for schema discovery.
         if path == "/redfish/v1/$metadata":
             xml_body = redfish_core.build_metadata_xml().encode("utf-8")
@@ -1644,7 +1651,6 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         response = {
                             "@odata.id": "/redfish/v1/Systems",
                             "@odata.type": "#ComputerSystemCollection.ComputerSystemCollection",
-                            "Name": "Systems Collection",
                             "Members": members,
                             "Members@odata.count": len(members),
                         }
@@ -1791,7 +1797,6 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     response = {
                         "@odata.id": f"/redfish/v1/Managers/{manager_id}/VirtualMedia",
                         "@odata.type": "#VirtualMediaCollection.VirtualMediaCollection",
-                        "Name": "Virtual Media Collection",
                         "Members": [{"@odata.id": f"/redfish/v1/Managers/{manager_id}/VirtualMedia/Cd"}],
                         "Members@odata.count": 1,
                     }
@@ -1862,6 +1867,19 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     status_code = 404
                     response = {"error": {"code": "Base.1.0.GeneralError", "message": f"Resource not found: {path}"}}
 
+        # Ensure every collection carries a Name (required by most *Collection schemas).
+        # ComputerSystemCollection and ChassisCollection are the two whose resolved CSDL
+        # rejects Name, so they are deliberately excluded.
+        if status_code == 200 and isinstance(response, dict):
+            otype = response.get("@odata.type", "")
+            if (
+                isinstance(otype, str)
+                and otype.endswith("Collection")
+                and "Name" not in response
+                and not otype.startswith(("#ComputerSystemCollection", "#ChassisCollection"))
+            ):
+                response["Name"] = otype.lstrip("#").split(".")[0]
+
         # Apply supported OData query params ($select/$top/$skip + pagination).
         if status_code == 200 and isinstance(response, dict) and query_params:
             response = redfish_core.apply_query(response, query_params, self.path)
@@ -1873,6 +1891,11 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_header("OData-Version", "4.0")
         if status_code == 200:
             self.send_header("ETag", 'W/"' + hashlib.sha256(response_body).hexdigest()[:16] + '"')
+            self.send_header("Cache-Control", "no-cache")
+            # Link: rel=describedby -> the JSON Schema for this resource type.
+            if isinstance(response, dict) and isinstance(response.get("@odata.type"), str):
+                schema = response["@odata.type"].lstrip("#").rsplit(".", 1)[0]
+                self.send_header("Link", f"<https://redfish.dmtf.org/schemas/v1/{schema}.json>; rel=describedby")
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)

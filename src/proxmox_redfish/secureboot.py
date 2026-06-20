@@ -310,7 +310,6 @@ def get_db_collection(vmid: int) -> Tuple[Dict[str, Any], int]:
         {
             "@odata.id": base,
             "@odata.type": "#SecureBootDatabaseCollection.SecureBootDatabaseCollection",
-            "Name": "UEFI SecureBoot Database Collection",
             "Members@odata.count": len(SB_DATABASES_ALL),
             "Members": [{"@odata.id": f"{base}/{dbid}"} for dbid in SB_DATABASES_ALL],
         },
@@ -358,7 +357,6 @@ def get_signatures_collection(vmid: int, dbid: str) -> Tuple[Dict[str, Any], int
         {
             "@odata.id": base,
             "@odata.type": "#SignatureCollection.SignatureCollection",
-            "Name": f"{dbid} Signature Collection",
             "Members@odata.count": 0,
             "Members": [],
         },
@@ -457,7 +455,6 @@ def get_cert_collection(vmid: int, dbid: str) -> Tuple[Dict[str, Any], int]:
         {
             "@odata.id": base,
             "@odata.type": "#CertificateCollection.CertificateCollection",
-            "Name": f"{dbid} Certificate Collection",
             "Members@odata.count": len(members),
             "Members": members,
         },

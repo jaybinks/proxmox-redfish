@@ -18,17 +18,22 @@ against the daemon in CI via a mock-backed launcher (`tools/mock_server.py`, no 
 Proxmox needed) and the `.github/workflows/conformance.yml` job. Latest run:
 
 ```
-| PASS | WARN | FAIL | NOT TESTED |
-|  627 |  13  |  0   |    1056    |
+Redfish-Service-Validator (schema):   PASS 639 | WARN 8  | FAIL 0
+Redfish-Protocol-Validator (DSP0266): PASS 263 | WARN 0  | FAIL 22
 ```
 
-**0 FAIL** across the full crawled tree. The 13 warnings are advisory (recommended-but-
-optional annotations on a few resources). `NOT TESTED` counts schema properties absent
-from our (intentionally minimal) payloads — not failures. Run locally:
+The **Service-Validator** (schema/CSDL conformance — the primary Redfish validator) reports
+**0 FAIL** across the full crawled tree; the 8 warnings are advisory. The **Protocol-Validator**
+(HTTP-layer behaviour) passes 263 assertions; the remaining 22 are predominantly (a) `*_HTTPS_*`
+assertions that only apply over TLS (the CI run is plain HTTP), and (b) deeper session-login and
+event-delivery response-shape checks — tracked as follow-ups, not schema-conformance gaps.
+
+Run locally:
 
 ```bash
 python tools/mock_server.py 8000 &
-rf_service_validator -u admin -p admin -r http://localhost:8000 --authtype Basic --nooemcheck
+rf_service_validator   -u admin -p admin -r http://localhost:8000 --authtype Basic --nooemcheck
+rf_protocol_validator  -u admin -p admin -r http://localhost:8000 --no-cert-check
 ```
 
 ## Compliance legend

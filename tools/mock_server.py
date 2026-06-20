@@ -53,9 +53,18 @@ def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     proxmox = _make_proxmox()
 
-    # Stub auth + backend so the validator can crawl without credentials/Proxmox.
-    mod.validate_token = lambda headers: (True, "mock@pam")  # type: ignore[assignment]
+    # Enforce auth like the real daemon (so security assertions are exercised):
+    # any request without a Basic/Token credential is rejected.
+    def _validate(headers):  # noqa: ANN001
+        if headers.get("Authorization") or headers.get("X-Auth-Token"):
+            return (True, "mock@pam")
+        return (False, "Authentication required")
+
+    mod.validate_token = _validate  # type: ignore[assignment]
     mod.get_proxmox_api = lambda headers: proxmox  # type: ignore[assignment]
+    mod.ProxmoxAPI = lambda *a, **k: proxmox  # type: ignore[assignment]
+    # Enable Redfish session login (POST /SessionService/Sessions).
+    mod.AUTH = "Session"
     # SecureBoot locate_efidisk would shell out; return a canned EfiDisk.
     mod.secureboot.hostops.locate_efidisk = lambda p, v: mod.secureboot.hostops.EfiDisk(  # type: ignore[assignment]
         "local-lvm:vm-100-disk-0", "local-lvm", "/dev/pve/vm-100-disk-0", "4m", True, 540672

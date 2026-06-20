@@ -56,7 +56,6 @@ def build_managers_collection(proxmox: Any) -> Tuple[Dict[str, Any], int]:
         {
             "@odata.id": "/redfish/v1/Managers",
             "@odata.type": "#ManagerCollection.ManagerCollection",
-            "Name": "Manager Collection",
             "Members@odata.count": len(members),
             "Members": members,
         },
@@ -176,7 +175,6 @@ def build_accounts_collection(proxmox: Any) -> Tuple[Dict[str, Any], int]:
         {
             "@odata.id": "/redfish/v1/AccountService/Accounts",
             "@odata.type": ODATA["ManagerAccountCollection"],
-            "Name": "Accounts Collection",
             "Members@odata.count": len(members),
             "Members": members,
         },
@@ -214,7 +212,6 @@ def build_roles_collection() -> Dict[str, Any]:
     return {
         "@odata.id": "/redfish/v1/AccountService/Roles",
         "@odata.type": ODATA["RoleCollection"],
-        "Name": "Roles Collection",
         "Members@odata.count": len(_ROLES),
         "Members": [{"@odata.id": f"/redfish/v1/AccountService/Roles/{r}"} for r in _ROLES],
     }
@@ -264,7 +261,6 @@ def build_subscriptions_collection() -> Dict[str, Any]:
     return {
         "@odata.id": "/redfish/v1/EventService/Subscriptions",
         "@odata.type": ODATA["EventDestinationCollection"],
-        "Name": "Event Subscriptions Collection",
         "Members@odata.count": len(members),
         "Members": members,
     }
@@ -358,7 +354,6 @@ def build_registries() -> Dict[str, Any]:
     return {
         "@odata.id": "/redfish/v1/Registries",
         "@odata.type": "#MessageRegistryFileCollection.MessageRegistryFileCollection",
-        "Name": "Registry File Collection",
         "Members@odata.count": 0,
         "Members": [],
     }
@@ -368,7 +363,6 @@ def build_json_schemas() -> Dict[str, Any]:
     return {
         "@odata.id": "/redfish/v1/JsonSchemas",
         "@odata.type": "#JsonSchemaFileCollection.JsonSchemaFileCollection",
-        "Name": "JsonSchema File Collection",
         "Members@odata.count": 0,
         "Members": [],
     }
