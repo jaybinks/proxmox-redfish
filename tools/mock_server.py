@@ -43,6 +43,12 @@ def _make_proxmox():
     vm = node.qemu.return_value
     vm.config.get.return_value = dict(VM_CONFIG)
     vm.status.current.get.return_value = {"status": "running", "qmpstatus": "running"}
+    # Power/config actions return a UPID string (JSON-serializable Task id).
+    upid = "UPID:pve:0000ABCD:00000000:00000000:qmstart:100:root@pam:"
+    for action in ("start", "stop", "reset", "shutdown", "reboot", "suspend", "resume"):
+        getattr(vm.status, action).post.return_value = upid
+    vm.config.set.return_value = upid
+    vm.config.post.return_value = upid
     node.tasks.get.return_value = []
     node.tasks.return_value.status.get.return_value = {"status": "stopped", "exitstatus": "OK", "type": "qmstart"}
     proxmox.access.users.get.return_value = [{"userid": "root@pam", "enable": 1}]
@@ -65,8 +71,9 @@ def main() -> None:
     mod.ProxmoxAPI = lambda *a, **k: proxmox  # type: ignore[assignment]
     # Enable Redfish session login (POST /SessionService/Sessions).
     mod.AUTH = "Session"
-    # Validators expect full DSP0266 strictness (412 / 501).
-    mod.STRICT_PROTOCOL = True
+    # Validators expect full DSP0266 strictness (412 / 501); set MOCK_STRICT=0 to
+    # run lenient (e.g. for real-client compatibility tests).
+    mod.STRICT_PROTOCOL = os.getenv("MOCK_STRICT", "1") == "1"
     # SecureBoot locate_efidisk would shell out; return a canned EfiDisk.
     mod.secureboot.hostops.locate_efidisk = lambda p, v: mod.secureboot.hostops.EfiDisk(  # type: ignore[assignment]
         "local-lvm:vm-100-disk-0", "local-lvm", "/dev/pve/vm-100-disk-0", "4m", True, 540672

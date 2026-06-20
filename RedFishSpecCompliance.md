@@ -28,8 +28,23 @@ The **Service-Validator** (schema/CSDL conformance — the primary Redfish valid
 405-vs-404 on an existing resource for an unsupported method, event POST response shape,
 and POST-to-Members-property equivalence — tracked as follow-ups, not schema-conformance gaps.
 
-Both run over TLS via the mock launcher (`tools/mock_server.py https`, self-signed cert) with
-`--no-cert-check`, exactly as a real deployment would be tested:
+### Cross-client compatibility
+
+Beyond the validators, the daemon is tested against three independent Redfish clients
+(`tests/integration/test_redfish_clients.py`, CI job `client-compatibility`), all green:
+
+| Client | Result |
+|--------|--------|
+| OpenStack **sushy** (Ironic) | connect, parse System/Boot/SecureBoot, drive `ComputerSystem.Reset` ✅ |
+| DMTF **python-redfish-library** (`redfish`) | session login, GET ServiceRoot/Systems/SecureBoot ✅ |
+| DMTF **redfishtool** (CLI) | `Systems list` ✅ |
+
+The server runs **lenient** protocol mode by default (accepts a wrong `OData-Version` or
+unknown `$`-params rather than 412/501) for maximum real-world client compatibility;
+`REDFISH_STRICT_PROTOCOL=1` enforces full DSP0266 for validator runs.
+
+Both validators run over TLS via the mock launcher (`tools/mock_server.py https`, self-signed
+cert) with `--no-cert-check`, exactly as a real deployment would be tested:
 
 ```bash
 python tools/mock_server.py 8443 https &

@@ -49,3 +49,27 @@ jobs:
         with:
           name: redfish-conformance-report
           path: conformance-report/
+
+  client-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies + Redfish clients
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+          pip install sushy redfish redfishtool
+
+      - name: Cross-client compatibility (sushy, python-redfish-library, redfishtool)
+        run: |
+          REDFISH_LOGGING_ENABLED=false PYTHONPATH=src \
+            python -m pytest tests/integration/test_redfish_clients.py -v
+
