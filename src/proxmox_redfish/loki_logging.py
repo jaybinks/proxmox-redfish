@@ -110,7 +110,7 @@ class LokiHandler(logging.Handler):
                 timeout=self.timeout,
                 verify=self.verify,
             )
-        except Exception:  # noqa: BLE001 - delivery is best-effort
+        except Exception:  # noqa: BLE001 - delivery is best-effort  # nosec B110
             pass
 
     def close(self) -> None:

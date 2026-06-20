@@ -73,7 +73,7 @@ if logging_enabled:
         if _loki is not None:
             _loki.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s:%(lineno)d: %(message)s"))
             _log_handlers.append(_loki)
-    except Exception:  # noqa: BLE001 - never let logging setup break startup
+    except Exception:  # noqa: BLE001 - never let logging setup break startup  # nosec B110
         pass
     logging.basicConfig(
         level=log_level,
@@ -119,6 +119,113 @@ STRICT_PROTOCOL = os.getenv("REDFISH_STRICT_PROTOCOL", "0") == "1"
 
 # In-memory session store
 sessions: Dict[str, Dict[str, Any]] = {}
+
+# Hard cap on a session lifetime and on the number of concurrent sessions, to
+# bound the in-memory store (DoS) and stop credentials from lingering forever.
+SESSION_TTL_SECONDS = int(os.getenv("REDFISH_SESSION_TIMEOUT", "3600"))
+MAX_SESSIONS = int(os.getenv("REDFISH_MAX_SESSIONS", "256"))
+
+# Hard cap on the size of a request body we will read into memory (DoS defense).
+# 8 MiB is generous for any Redfish JSON payload; ISO/varstore data never flows
+# through the request body (URLs/paths are passed, not bytes).
+MAX_REQUEST_BODY_BYTES = int(os.getenv("REDFISH_MAX_BODY_BYTES", str(8 * 1024 * 1024)))
+
+# Headers whose values must never be written to a log/error/Loki sink: they carry
+# credentials or secrets (Basic base64 user:password, session token, raw password).
+_SENSITIVE_HEADERS = frozenset({"authorization", "x-auth-token", "cookie", "password"})
+
+
+def _redact_headers(headers: Any) -> str:
+    """Render request headers for logging with credential-bearing values redacted."""
+    lines = []
+    for key, value in headers.items():
+        if key.lower() in _SENSITIVE_HEADERS:
+            value = "<redacted>"
+        lines.append(f"{key}: {value}")
+    return "\n".join(lines)
+
+
+def _redact_payload_for_log(payload: Any) -> Any:
+    """Return a log-safe copy of a request body with secret fields masked."""
+    if isinstance(payload, dict):
+        redacted = {}
+        for key, value in payload.items():
+            if isinstance(key, str) and key.lower() in ("password", "passwd", "secret", "token"):
+                redacted[key] = "<redacted>"
+            else:
+                redacted[key] = _redact_payload_for_log(value)
+        return redacted
+    if isinstance(payload, list):
+        return [_redact_payload_for_log(v) for v in payload]
+    return payload
+
+
+def _validate_fetch_url(url: str) -> None:
+    """
+    SSRF guard for an ISO/virtual-media URL the root daemon will fetch.
+
+    Restricts to http(s) and, unless REDFISH_ISO_ALLOW_INTERNAL=1, rejects URLs that
+    resolve to loopback/link-local/private/reserved addresses -- so an authenticated
+    caller cannot make the daemon reach the cloud metadata service, the local Proxmox
+    API, or RFC1918 hosts. Raises ValueError on rejection.
+    """
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("ISO URL must use http or https")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("ISO URL has no host")
+    if os.getenv("REDFISH_ISO_ALLOW_INTERNAL", "0") == "1":
+        return
+
+    def _blocked(ip: "Union[ipaddress.IPv4Address, ipaddress.IPv6Address]") -> bool:
+        return bool(
+            ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_unspecified
+            or ip.is_reserved
+            or ip.is_private
+        )
+
+    # A literal internal IP is rejected outright. A hostname is rejected only when it
+    # resolves to an internal address; an unresolvable host is allowed (the fetch will
+    # simply fail and cannot reach an internal service).
+    try:
+        literal_ip = ipaddress.ip_address(host)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None:
+        if _blocked(literal_ip):
+            raise ValueError(
+                "ISO URL resolves to a non-routable/internal address; set REDFISH_ISO_ALLOW_INTERNAL=1 to allow"
+            )
+        return
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+        candidates = [ipaddress.ip_address(info[4][0]) for info in infos]
+    except (socket.gaierror, ValueError, UnicodeError):
+        return  # unresolvable -> cannot reach an internal target
+    for ip in candidates:
+        if _blocked(ip):
+            raise ValueError(
+                "ISO URL resolves to a non-routable/internal address; set REDFISH_ISO_ALLOW_INTERNAL=1 to allow"
+            )
+
+
+def _prune_sessions() -> None:
+    """Drop expired sessions; bound the store to MAX_SESSIONS (oldest evicted)."""
+    now = time.time()
+    for tok in [t for t, s in list(sessions.items()) if now - s.get("created", 0) >= SESSION_TTL_SECONDS]:
+        sessions.pop(tok, None)
+    if len(sessions) > MAX_SESSIONS:
+        for tok, _ in sorted(sessions.items(), key=lambda kv: kv[1].get("created", 0))[: len(sessions) - MAX_SESSIONS]:
+            sessions.pop(tok, None)
+
 
 # Global lock for ISO operations to prevent race conditions
 iso_operation_lock = threading.Lock()
@@ -327,7 +434,7 @@ def check_user_vm_permission(proxmox: ProxmoxAPI, username: str, vm_id: int) -> 
                                     elif path == "/vms" or path == "/":
                                         logger.info(f"User {username} has global group permissions")
                                         return True
-                    except Exception:
+                    except Exception:  # nosec B110 - group lookup is best-effort; fail closed (no grant)
                         # Group doesn't exist or other error, continue
                         pass
 
@@ -431,7 +538,7 @@ def atomic_file_write(temp_file_path: str, target_path: str, timeout: int = 300)
         if os.path.exists(temp_target):
             try:
                 os.unlink(temp_target)
-            except Exception:
+            except Exception:  # nosec B110 - best-effort cleanup of a temp file
                 pass
         raise e
 
@@ -627,6 +734,9 @@ def _ensure_iso_available(proxmox: ProxmoxAPI, url_or_volid: str) -> str:
     if url_or_volid.startswith(("http://", "https://")):
         if PROXMOX_ISO_STORAGE == "none":
             raise ValueError("ISO downloads are disabled (PROXMOX_ISO_STORAGE=none)")
+
+        # SSRF guard: block internal/metadata targets before the daemon fetches.
+        _validate_fetch_url(url_or_volid)
 
         logger.info("Processing ISO from URL: %s", url_or_volid)
 
@@ -1060,8 +1170,10 @@ def validate_token(headers: Any) -> Tuple[bool, str]:
                 if "@" not in username:
                     username += "@pam"
                 if authenticate_user(username, password):
-                    token = f"{username}-{password}"
-                    sessions[token] = {"created": time.time(), "username": username, "password": password}
+                    # Basic auth re-sends credentials each request, so no server-side
+                    # session is needed. We deliberately do NOT persist the password in
+                    # the session store (and never key a session by the password, which
+                    # would leak it via the Sessions collection URIs).
                     return True, username
                 else:
                     return False, f"Invalid Basic Authentication credentials for user {username}"
@@ -1073,7 +1185,7 @@ def validate_token(headers: Any) -> Tuple[bool, str]:
         token = headers.get("X-Auth-Token")
         if token in sessions:
             session = sessions[token]
-            if time.time() - session["created"] < 3600:
+            if time.time() - session["created"] < SESSION_TTL_SECONDS:
                 return True, session["username"]
             else:
                 del sessions[token]
@@ -1668,9 +1780,8 @@ def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tupl
 # Custom request handler
 class RedfishRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        # Log request details
-        headers_str = "\n".join(f"{k}: {v}" for k, v in self.headers.items())
-        logger.debug(f"GET Request: path={self.path}, headers=\n{headers_str}")
+        # Log request details (credential-bearing headers redacted).
+        logger.debug("GET Request: path=%s, headers=\n%s", self.path, _redact_headers(self.headers))
 
         from urllib.parse import parse_qs, urlparse
 
@@ -2020,11 +2131,16 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
-        logger.debug(f"GET Response: path={self.path}, status={status_code}, body={json.dumps(response)}")
+        # Do not log the response body: session-token URIs (SessionService/Sessions
+        # and the session-create response) would otherwise be persisted to syslog/Loki.
+        logger.debug("GET Response: path=%s, status=%s", self.path, status_code)
 
     def do_POST(self) -> None:
         # Log request details
         content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > MAX_REQUEST_BODY_BYTES:
+            self._reject_oversized_body()
+            return
         post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
 
         try:
@@ -2036,9 +2152,12 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         except UnicodeDecodeError:
             post_data_str = "<Non-UTF-8 data>"
             payload = post_data_str
-        headers_str = "\n".join(f"{k}: {v}" for k, v in self.headers.items())
+        # Redact secret headers and any Password field in the body before logging.
         logger.debug(
-            f"POST Request: path={self.path}\nHeaders:\n{headers_str}\nPayload:\n{json.dumps(payload, indent=2)}"
+            "POST Request: path=%s\nHeaders:\n%s\nPayload:\n%s",
+            self.path,
+            _redact_headers(self.headers),
+            json.dumps(_redact_payload_for_log(payload), indent=2),
         )
 
         path = self.path
@@ -2063,7 +2182,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     if "@" not in username:
                         username += "@pam"
                     proxmox = ProxmoxAPI(PROXMOX_HOST, user=username, password=password, verify_ssl=VERIFY_SSL)
-                    token = secrets.token_hex(16)
+                    _prune_sessions()
+                    token = secrets.token_hex(32)
                     sessions[token] = {"username": username, "password": password, "created": time.time()}
                     status_code = 201
                     response = {
@@ -2113,10 +2233,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         self.send_header("Connection", "close")
                         self.end_headers()
                         self.wfile.write(response_body)
-                        # Log response
-                        logger.debug(
-                            f"POST Response: path={self.path}, status={status_code}, body={json.dumps(response)}"
-                        )
+                        # Log response (status only; bodies may carry session tokens).
+                        logger.debug("POST Response: path=%s, status=%s", self.path, status_code)
                         return
 
                     data = json.loads(post_data.decode("utf-8"))
@@ -2253,12 +2371,15 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(response).encode("utf-8"))
 
-        # Log response
-        logger.debug(f"POST Response: path={self.path}, status={status_code}, body={json.dumps(response)}")
+        # Log response (status only; the session-create body carries a bearer token).
+        logger.debug("POST Response: path=%s, status=%s", self.path, status_code)
 
     def do_PATCH(self) -> None:
         # Log request details
         content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > MAX_REQUEST_BODY_BYTES:
+            self._reject_oversized_body()
+            return
         post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
         try:
             post_data_str = post_data.decode("utf-8")
@@ -2269,9 +2390,12 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         except UnicodeDecodeError:
             post_data_str = "<Non-UTF-8 data>"
             payload = post_data_str
-        headers_str = "\n".join(f"{k}: {v}" for k, v in self.headers.items())
+        # Redact secret headers and any Password field in the body before logging.
         logger.debug(
-            f"PATCH Request: path={self.path}\nHeaders:\n{headers_str}\nPayload:\n{json.dumps(payload, indent=2)}"
+            "PATCH Request: path=%s\nHeaders:\n%s\nPayload:\n%s",
+            self.path,
+            _redact_headers(self.headers),
+            json.dumps(_redact_payload_for_log(payload), indent=2),
         )
 
         path = self.path.rstrip("/")
@@ -2747,6 +2871,25 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         """Redfish resources here are not replaceable via PUT -> 405 with Allow."""
         self._method_not_allowed()
 
+    def _reject_oversized_body(self) -> None:
+        """Reject a request whose Content-Length exceeds MAX_REQUEST_BODY_BYTES (413)."""
+        self.protocol_version = "HTTP/1.1"
+        body = json.dumps(
+            {
+                "error": {
+                    "code": "Base.1.0.GeneralError",
+                    "message": "Request body exceeds the maximum allowed size.",
+                }
+            }
+        ).encode("utf-8")
+        self.send_response(413)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("OData-Version", "4.0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _method_not_allowed(self) -> None:
         self.protocol_version = "HTTP/1.1"
         body = json.dumps(
@@ -2895,7 +3038,10 @@ def main() -> None:
 
     # Set defaults
     config.setdefault("redfish", {}).setdefault("port", 8443)
-    config.setdefault("redfish", {}).setdefault("host", "0.0.0.0")
+    # Bind all interfaces by design: a BMC-style Redfish endpoint must be reachable
+    # by out-of-band provisioning tools. TLS + Proxmox auth gate every request; the
+    # operator restricts exposure at the network/firewall layer.
+    config.setdefault("redfish", {}).setdefault("host", "0.0.0.0")  # nosec B104 - daemon must be network-reachable
     config.setdefault("logging", {}).setdefault("level", "INFO")
 
     # Validate required configuration

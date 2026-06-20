@@ -440,7 +440,7 @@ def _cert_body(vmid: int, dbid: str, cert_id: str, pem: str) -> Dict[str, Any]:
         body["SerialNumber"] = hex(cert.serial_number)
         body["Subject"] = {"CommonName": cert.subject.rfc4514_string()}
         body["Issuer"] = {"CommonName": cert.issuer.rfc4514_string()}
-    except Exception:  # noqa: BLE001 - metadata is optional, never fail the GET
+    except Exception:  # noqa: BLE001 - metadata is optional, never fail the GET  # nosec B110
         pass
     return body
 
