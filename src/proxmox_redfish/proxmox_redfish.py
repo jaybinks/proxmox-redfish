@@ -1512,9 +1512,23 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         status_code = 200
         self.protocol_version = "HTTP/1.1"
 
-        # Allow root endpoint without authentication for service discovery
+        # $metadata is XML (CSDL) and is served without auth for schema discovery.
+        if path == "/redfish/v1/$metadata":
+            xml_body = redfish_core.build_metadata_xml().encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(xml_body)))
+            self.send_header("OData-Version", "4.0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(xml_body)
+            return
+
+        # Allow root + odata service doc without authentication for service discovery
         if path == "/redfish/v1":
             response = redfish_core.build_service_root()
+        elif path == "/redfish/v1/odata":
+            response = redfish_core.build_odata_service_doc()
         else:
             # Require authentication for all other endpoints
             valid, message = validate_token(self.headers)
@@ -1731,6 +1745,9 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response_body)))
+        self.send_header("OData-Version", "4.0")
+        if status_code == 200:
+            self.send_header("ETag", 'W/"' + hashlib.sha256(response_body).hexdigest()[:16] + '"')
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
@@ -1945,6 +1962,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         # Async actions: point Location at the resolvable Task resource.
         if status_code == 202 and isinstance(response, dict) and response.get("@odata.id"):
             self.send_header("Location", response["@odata.id"])
+        self.send_header("OData-Version", "4.0")
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(json.dumps(response).encode("utf-8"))
@@ -2283,6 +2301,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(content_length))
         if status_code == 202 and isinstance(response, dict) and response.get("@odata.id"):
             self.send_header("Location", response["@odata.id"])
+        self.send_header("OData-Version", "4.0")
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)
@@ -2323,6 +2342,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response_body)))
+        self.send_header("OData-Version", "4.0")
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(response_body)

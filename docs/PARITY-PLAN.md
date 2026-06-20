@@ -72,17 +72,19 @@ handler tests) ✅. Remaining: per-database ResetKeys, Signatures, desired-mode,
 
 ---
 
-## Phase 5 — Compliance proof + VirtualMedia (M)
+## Phase 5 — Compliance proof + VirtualMedia (M)  🟡 in progress
 
-| Item | Change |
-|------|--------|
-| Schema validation in tests | Validate every emitted response against the mirrored JSON Schemas (golden tests vs `redfish-reference/mockups/`). |
-| `$metadata` / JsonSchemas / Registries | Serve the OData `$metadata` document and a `Registries` index referencing the Base registry. |
-| VirtualMedia cleanup | Use `Cd` (not `CDROM`), expose a proper VirtualMedia collection, add `TransferProtocolType`/`WriteProtected`. |
-| ETag / If-Match | Emit `@odata.etag`; honor `If-Match` on PATCH of mutable resources. |
+| Item | Change | Status |
+|------|--------|--------|
+| Structural conformance harness | `tests/unit/test_conformance.py` crawls every resource through the handler, asserting @odata shape, collection counts, OData-Version, ETag, well-formed `$metadata`. | ✅ |
+| `$metadata` / odata / Registries / JsonSchemas | CSDL `$metadata` + service doc + discovery collections served. | ✅ |
+| `OData-Version` + `ETag` | `OData-Version: 4.0` on all responses; weak `ETag` on GET 200. | ✅ |
+| Full DMTF Service-Validator gate | Run the real Redfish-Service-Validator (offline schema dir) against the daemon in CI; 0 errors on implemented resources = exit gate. | ⬜ |
+| `If-Match` on PATCH | Honor conditional PATCH using the emitted ETag. | ⬜ |
+| VirtualMedia cleanup | `Cd` (not `CDROM`), proper collection, `TransferProtocolType`/`WriteProtected`. | ⬜ |
 
-**Acceptance:** all emitted bodies validate against the pinned schemas in CI; clients
-can fetch `$metadata` and introspect.
+**Acceptance:** structural harness green in CI ✅; remaining: real Service-Validator gate,
+If-Match, VirtualMedia naming. See `docs/research/redfish-validation-tools.md`.
 
 ---
 

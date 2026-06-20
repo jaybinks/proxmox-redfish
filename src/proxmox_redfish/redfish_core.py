@@ -65,6 +65,67 @@ def build_service_root() -> Dict[str, Any]:
     }
 
 
+def build_odata_service_doc() -> Dict[str, Any]:
+    """OData service document (/redfish/v1/odata) listing top-level services."""
+    names = [
+        "Systems",
+        "Chassis",
+        "Managers",
+        "SessionService",
+        "TaskService",
+        "AccountService",
+        "EventService",
+        "UpdateService",
+    ]
+    return {
+        "@odata.context": "/redfish/v1/$metadata",
+        "value": [{"name": n, "kind": "Singleton", "url": f"/redfish/v1/{n}"} for n in names],
+    }
+
+
+def build_metadata_xml() -> str:
+    """
+    Minimal OData CSDL ($metadata) referencing the DMTF schemas for the resources
+    this service exposes. Lets schema-aware clients (Redfish-Service-Validator)
+    discover types. References are by published schema name/version.
+    """
+    refs = [
+        "ServiceRoot.v1_16_0",
+        "ComputerSystemCollection",
+        "ComputerSystem.v1_22_0",
+        "ChassisCollection",
+        "Chassis.v1_25_0",
+        "ManagerCollection",
+        "Manager.v1_16_0",
+        "SessionService.v1_1_9",
+        "SessionCollection",
+        "TaskService.v1_2_0",
+        "TaskCollection",
+        "AccountService.v1_15_0",
+        "EventService.v1_10_0",
+        "UpdateService.v1_14_0",
+        "SecureBoot.v1_2_0",
+        "Certificate.v1_11_0",
+    ]
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">',
+    ]
+    for ref in refs:
+        lines.append(f'  <edmx:Reference Uri="http://redfish.dmtf.org/schemas/v1/{ref}.xml">')
+        schema = ref.split(".")[0]
+        lines.append(f'    <edmx:Include Namespace="{schema}"/>')
+        lines.append(f'    <edmx:Include Namespace="{ref}"/>')
+        lines.append("  </edmx:Reference>")
+    lines.append("  <edmx:DataServices>")
+    lines.append('    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="Service">')
+    lines.append('      <EntityContainer Name="Service" Extends="ServiceRoot.v1_0_0.ServiceContainer"/>')
+    lines.append("    </Schema>")
+    lines.append("  </edmx:DataServices>")
+    lines.append("</edmx:Edmx>")
+    return "\n".join(lines)
+
+
 # --------------------------------------------------------------------------- #
 # SessionService / Sessions
 # --------------------------------------------------------------------------- #

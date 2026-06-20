@@ -153,11 +153,12 @@ Behaviours a conformant client could observe as non-standard:
 | Redfish error envelope (`error` + `@Message.ExtendedInfo`) | ✅ ⚠️ | Correct shape; `Base.1.0` version prefix is dated (deferred — see below). |
 | Status codes (200/201/202/4xx/5xx) | ✅ | 202 + resolvable `Location` for async ops. |
 | Async Task lifecycle (`Location` → `GET Task`) | ✅ | TaskService maps Proxmox UPIDs; 202 `Location` resolves to `GET /TaskService/Tasks/{upid}`. |
-| ETag / If-Match concurrency | ❌ | No conditional requests on PATCH. |
+| `OData-Version: 4.0` header | ✅ | Emitted on all responses. |
+| ETag / If-Match concurrency | 🟡 | Weak `ETag` emitted on GET 200; `If-Match` not yet honored on PATCH. |
 | OData query (`$expand`, `$select`, `$filter`) | ❌ | |
-| Collection pagination (`Members@odata.nextLink`) | ❌ | Collections returned whole. |
-| `$metadata` / JsonSchema / Registry discovery | ❌ | |
-| Response schema validation against DMTF schemas | ❌ | Mirror present in repo but not enforced at runtime/test. |
+| Collection pagination (`Members@odata.nextLink`) | ❌ | Collections small; returned whole. |
+| `$metadata` / odata / Registry / JsonSchema discovery | 🟡 | `$metadata` CSDL + `/redfish/v1/odata` served; Registries/JsonSchemas present (empty). |
+| Response schema validation against DMTF schemas | 🟡 | Structural conformance harness (`tests/unit/test_conformance.py`) crawls every resource in CI; full CSDL validation via the DMTF Service-Validator is the Phase-5 exit gate. |
 
 ## Suitability by use case
 
