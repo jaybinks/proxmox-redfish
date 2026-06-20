@@ -19,15 +19,15 @@ openssl req -x509 -newkey rsa:4096 -keyout config/ssl/server.key \
 ## 2. Stage the varstore image(s) and profile catalog
 
 ```bash
-mkdir -p /opt/proxmox-redfish/varstores /var/lib/proxmox-redfish/secureboot
+mkdir -p /var/lib/proxmox-redfish/varstores /var/lib/proxmox-redfish/secureboot
 # Copy your pre-baked image (the one you currently dd by hand) into the allowlisted dir:
-cp /var/lib/vz/template/iso/ngv-ovmf-vars-3009.img /opt/proxmox-redfish/varstores/ngv-ovmf-vars.img
+cp /var/lib/vz/template/iso/ngv-ovmf-vars-3009.img /var/lib/proxmox-redfish/varstores/ngv-ovmf-vars.img
 # Optional blank/setup-mode varstore for SecureBootEnable=false / DeleteAllKeys:
-cp /usr/share/OVMF/OVMF_VARS_4M.fd /opt/proxmox-redfish/varstores/OVMF_VARS_4M.blank.fd
+cp /usr/share/OVMF/OVMF_VARS_4M.fd /var/lib/proxmox-redfish/varstores/OVMF_VARS_4M.blank.fd
 
 cp config/secureboot_profiles.json.example /opt/proxmox-redfish/config/secureboot_profiles.json
 # Fill in the real sha256 so the daemon verifies the image before every write (INV-11):
-sha256sum /opt/proxmox-redfish/varstores/*.img /opt/proxmox-redfish/varstores/*.fd
+sha256sum /var/lib/proxmox-redfish/varstores/*.img /var/lib/proxmox-redfish/varstores/*.fd
 # edit /opt/proxmox-redfish/config/secureboot_profiles.json -> image_sha256 fields
 ```
 

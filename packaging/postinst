@@ -22,6 +22,15 @@ case "$1" in
            [ -f /opt/proxmox-redfish/config/secureboot_profiles.json.example ]; then
             cp /opt/proxmox-redfish/config/secureboot_profiles.json.example "$ETC/secureboot_profiles.json"
         fi
+        # Migrate a profile from a pre-0.2.7 install: varstore images moved from
+        # /opt/proxmox-redfish/varstores to the canonical /var/lib/proxmox-redfish/
+        # varstores (the path-allowlist dir). Rewrite stale image paths in place.
+        if [ -f "$ETC/secureboot_profiles.json" ] && \
+           grep -q '/opt/proxmox-redfish/varstores' "$ETC/secureboot_profiles.json"; then
+            sed -i 's#/opt/proxmox-redfish/varstores#/var/lib/proxmox-redfish/varstores#g' \
+                "$ETC/secureboot_profiles.json"
+            echo "proxmox-redfish: migrated SecureBoot varstore paths to /var/lib/proxmox-redfish/varstores."
+        fi
 
         # TLS: by default the daemon uses the Proxmox node certificate
         # (/etc/pve/local/pve-ssl.pem) -- same identity as the :8006 API -- so no cert
