@@ -28,5 +28,8 @@ registry, and authentic mockups. See
 
 ## Status
 
-Docs + reference replica: **done**. Code (Phase 1 MVP static varstore-swap): **not started** —
-see ROADMAP. Existing daemon code (`src/proxmox_redfish/proxmox_redfish.py`) is unchanged.
+Docs + reference replica: **done**. Phase 1 MVP (static varstore-swap): **implemented** —
+`src/proxmox_redfish/hostops.py` + `secureboot.py`, wired into the daemon, 76 unit tests, 91%
+coverage on the new modules. Writes are dry-run by default. See
+[operations/install-and-test.md](operations/install-and-test.md) to install and validate on
+Proxmox. Next: Phase 2 (schema-validated responses, ETag) — see ROADMAP.

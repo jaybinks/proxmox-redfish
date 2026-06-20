@@ -29,6 +29,8 @@ import requests
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 
+from proxmox_redfish import secureboot
+
 # Configure logging to send to system journal
 # Logging configuration with configurable levels
 logger = logging.getLogger("proxmox-redfish")
@@ -1423,6 +1425,7 @@ def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tupl
             "Status": {"State": power_state, "Health": health},
             "PowerState": power_state,
             "Bios": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Bios"},
+            "SecureBoot": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/SecureBoot"},
             "Processors": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Processors"},
             "Memory": memory_field,
             "Storage": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage"},
@@ -1565,6 +1568,18 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         response = get_ethernet_interface_detail(proxmox, vm_id, interface_id)
                         if isinstance(response, tuple):
                             response, status_code = response
+                    elif secureboot.is_secureboot_path(parts):  # /Systems/<vm_id>/SecureBoot...
+                        result = secureboot.route_get(proxmox, parts)
+                        if result is secureboot.NOT_HANDLED:
+                            status_code = 404
+                            response = {
+                                "error": {
+                                    "code": "Base.1.0.ResourceMissingAtURI",
+                                    "message": f"Resource not found: {path}",
+                                }
+                            }
+                        else:
+                            response, status_code = result  # type: ignore[misc]
                     else:
                         status_code = 404
                         response = {
@@ -1786,6 +1801,16 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         vm_id = int(path.split("/")[4])
                         config_data = data
                         response, status_code = update_vm_config(proxmox, vm_id, config_data)
+                    elif "/SecureBoot/" in path and secureboot.is_secureboot_path(path.rstrip("/").split("/")):
+                        sb_parts = path.rstrip("/").split("/")
+                        result = secureboot.route_post(proxmox, sb_parts, data)
+                        if result is secureboot.NOT_HANDLED:
+                            status_code = 404
+                            response = {
+                                "error": {"code": "Base.1.0.GeneralError", "message": f"Resource not found: {path}"}
+                            }
+                        else:
+                            response, status_code = result  # type: ignore[misc]
                     else:
                         status_code = 404
                         response = {
@@ -1909,6 +1934,21 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                     response = {"error": {"code": "Base.1.0.GeneralError", "message": "Invalid JSON payload"}}
                 except Exception as e:
                     response, status_code = handle_proxmox_error("BIOS update", e, vm_id)
+            elif secureboot.is_secureboot_path(parts):  # /Systems/<vm_id>/SecureBoot
+                try:
+                    data = json.loads(post_data.decode("utf-8"))
+                except json.JSONDecodeError:
+                    status_code = 400
+                    response = {"error": {"code": "Base.1.0.GeneralError", "message": "Invalid JSON payload"}}
+                else:
+                    result = secureboot.route_patch(proxmox, parts, data)
+                    if result is secureboot.NOT_HANDLED:
+                        status_code = 404
+                        response = {
+                            "error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Resource not found: {path}"}
+                        }
+                    else:
+                        response, status_code = result  # type: ignore[misc]
             elif path.startswith("/redfish/v1/Systems/") and len(parts) == 5:
                 vm_id = path.split("/")[4]
                 logger.debug(f"Processing boot configuration for VM {vm_id}")

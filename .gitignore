@@ -79,4 +79,5 @@ backup/
 *.pfx
 config/ssl/*.crt
 config/ssl/*.key
-config/ssl/*.pem 
+config/ssl/*.pem
+.venv/

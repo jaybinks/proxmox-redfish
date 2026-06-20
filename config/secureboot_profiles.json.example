@@ -1,0 +1,30 @@
+{
+  "profiles": {
+    "ngv-sb-on": {
+      "description": "Custom NGV PK/KEK/db enrolled (--no-microsoft), SecureBootEnable=ON",
+      "image_path": "/opt/proxmox-redfish/varstores/ngv-ovmf-vars.img",
+      "efitype": "4m",
+      "secure_boot": true,
+      "databases": { "PK": true, "KEK": true, "db": true, "dbx": false },
+      "size_bytes": 540672,
+      "image_sha256": "REPLACE_WITH_sha256sum_OF_THE_IMAGE"
+    },
+    "sb-off-blank": {
+      "description": "Blank OVMF_VARS_4M varstore, Setup Mode, SecureBootEnable=OFF",
+      "image_path": "/opt/proxmox-redfish/varstores/OVMF_VARS_4M.blank.fd",
+      "efitype": "4m",
+      "secure_boot": false,
+      "databases": { "PK": false, "KEK": false, "db": false, "dbx": false },
+      "size_bytes": 540672,
+      "image_sha256": "REPLACE_WITH_sha256sum_OF_THE_IMAGE"
+    }
+  },
+  "default_profile": "ngv-sb-on",
+  "map": {
+    "SecureBootEnable:true": "ngv-sb-on",
+    "SecureBootEnable:false": "sb-off-blank",
+    "ResetAllKeysToDefault": "ngv-sb-on",
+    "DeleteAllKeys": "sb-off-blank",
+    "DeletePK": "sb-off-blank"
+  }
+}

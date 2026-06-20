@@ -11,7 +11,7 @@ reference mirror.
 **Acceptance:** all docs present; INV-* enumerated; DMTF schemas + mockups mirrored with sha256 in
 REFERENCES.md; conformance matrix seeded; no daemon source changed.
 
-## Phase 1 — MVP static varstore-swap  (next)
+## Phase 1 — MVP static varstore-swap  ✅ (implemented)
 
 New `hostops.py` (sole shell-out boundary) + `secureboot.py` (Redfish surface). Endpoints:
 `GET/PATCH /Systems/{id}/SecureBoot`, `POST .../SecureBoot/Actions/SecureBoot.ResetKeys`,

@@ -37,7 +37,7 @@ the executor *refuses* when violated and *proceeds* only when all hold.
 | INV-03 | The VM config declares an `efidisk0`; absence → refuse. | 400 ActionNotSupported |
 | INV-04 | `efitype=4m`; reject `2m` or unspecified (image is a 4m varstore). | 409 ActionNotSupported |
 | INV-05 | Resolved path matches the anchored regex `^/dev/pve/vm-<vmid>-disk-\d+$` with `<vmid>` substituted from the validated integer. No globbing, no `..`. | 500 GeneralError |
-| INV-06 | `realpath` stays under `/dev/pve/` and the target is a block device (`stat.S_ISBLK`); reject regular files, dirs, or symlinks pointing elsewhere. | 500 GeneralError |
+| INV-06 | `realpath` resolves to a block device under `/dev/` (LVM maps `/dev/pve/vm-*` → `/dev/dm-*`) (`stat.S_ISBLK`); reject regular files, dirs, or symlinks pointing elsewhere. The logical path is already pinned to `/dev/pve/...` by INV-05. | 500 GeneralError |
 | INV-07 | The LV name's `vm-<vmid>-` prefix equals the validated `vmid` (cross-check). Mismatch → refuse. | 500 GeneralError |
 | INV-08 | VM confirmed `stopped` via the Proxmox API (`status.current.qmpstatus == "stopped"`) immediately before the write; fresh read, not cached. | 409 ResourceInStandby |
 | INV-09 | After acquiring the write lock, status is re-read and still `stopped`; changed → abort. | 409 ResourceInStandby |
