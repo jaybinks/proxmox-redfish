@@ -1375,6 +1375,29 @@ def get_manager(proxmox: ProxmoxAPI, manager_id: int) -> Union[Dict[str, Any], T
         return handle_proxmox_error("Manager retrieval", e, manager_id)
 
 
+def compute_etag(body: Dict[str, Any]) -> str:
+    """Weak ETag matching what do_GET emits: W/"<sha256(json)[:16]>"."""
+    return 'W/"' + hashlib.sha256(json.dumps(body).encode("utf-8")).hexdigest()[:16] + '"'
+
+
+def current_resource_etag(proxmox: ProxmoxAPI, parts: list) -> Optional[str]:
+    """
+    Best-effort current ETag of a PATCH target, for If-Match optimistic concurrency.
+    Returns None when the resource can't be cheaply re-represented (enforcement skipped).
+    """
+    try:
+        if secureboot.is_secureboot_path(parts) and len(parts) == 6:
+            sb_body, status = secureboot.get_secureboot(proxmox, int(parts[4]))
+            return compute_etag(sb_body) if status == 200 else None
+        if len(parts) == 5 and parts[3] == "Systems" and parts[4].isdigit():
+            result = get_vm_status(proxmox, int(parts[4]))
+            rep = result[0] if isinstance(result, tuple) else result
+            return compute_etag(rep)
+    except Exception:  # noqa: BLE001 - if we can't compute it, don't block the PATCH
+        return None
+    return None
+
+
 def ensure_efidisk(proxmox: ProxmoxAPI, vm_id: Union[str, int], storage: Optional[str] = None) -> Dict[str, Any]:
     """
     Ensure the VM has an OVMF EFI variable disk (efidisk0) with efitype=4m.
@@ -2020,6 +2043,36 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(response_body)
                 logger.debug(f"PATCH Response: path={self.path}, status={status_code}, body={json.dumps(response)}")
                 return
+
+            # If-Match optimistic concurrency (DSP0266): reject a stale update with 412.
+            if_match = self.headers.get("If-Match")
+            if if_match and if_match.strip() != "*":
+                current = current_resource_etag(proxmox, parts)
+                if current is not None and if_match.strip() != current:
+                    response = {
+                        "error": {
+                            "code": "Base.1.0.PreconditionFailed",
+                            "message": "The If-Match ETag does not match the current resource ETag.",
+                            "@Message.ExtendedInfo": [
+                                {
+                                    "@odata.type": "#Message.v1_1_1.Message",
+                                    "MessageId": "Base.1.0.PreconditionFailed",
+                                    "Message": "The resource has changed since it was last retrieved.",
+                                    "MessageSeverity": "Warning",
+                                    "Resolution": "GET the resource for the current ETag and retry.",
+                                }
+                            ],
+                        }
+                    }
+                    response_body = json.dumps(response).encode("utf-8")
+                    self.send_response(412)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(response_body)))
+                    self.send_header("OData-Version", "4.0")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    self.wfile.write(response_body)
+                    return
 
             if len(parts) == 6 and parts[5] == "Bios":  # /redfish/v1/Systems/<vm_id>/Bios
                 vm_id = parts[4]

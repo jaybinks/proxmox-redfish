@@ -240,6 +240,37 @@ class HandlerRouteTests(unittest.TestCase):
         # no JSON body on HEAD
         self.assertEqual(raw(h).split("\r\n\r\n", 1)[1], "")
 
+    # If-Match optimistic concurrency (tested on the SecureBoot PATCH target) -
+    def _patch_secureboot(self, if_match):
+        from proxmox_redfish.proxmox_redfish import compute_etag
+
+        current_body = {"@odata.id": "/redfish/v1/Systems/100/SecureBoot", "Id": "SecureBoot"}
+        body = json.dumps({"SecureBootEnable": True}).encode()
+        h = make_handler(method="PATCH", path="/redfish/v1/Systems/100/SecureBoot", body=body)
+        h.headers["If-Match"] = if_match
+        with patch("proxmox_redfish.secureboot.get_secureboot", return_value=(current_body, 200)), patch(
+            "proxmox_redfish.secureboot.route_patch", return_value=({"ok": 1}, 200)
+        ) as rp:
+            h.do_PATCH()
+        return h, rp, compute_etag(current_body)
+
+    def test_if_match_mismatch_412(self):
+        h, rp, _ = self._patch_secureboot('W/"deadbeefdeadbeef"')
+        self.assertIn("412", status_line(h))
+        rp.assert_not_called()  # stale update never dispatched
+
+    def test_if_match_correct_proceeds(self):
+        # First get the real current ETag, then send it back.
+        _, _, etag = self._patch_secureboot("*")
+        h, rp, _ = self._patch_secureboot(etag)
+        self.assertNotIn("412", status_line(h))
+        rp.assert_called_once()
+
+    def test_if_match_star_proceeds(self):
+        h, rp, _ = self._patch_secureboot("*")
+        self.assertNotIn("412", status_line(h))
+        rp.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

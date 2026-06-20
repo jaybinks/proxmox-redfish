@@ -155,7 +155,7 @@ Behaviours a conformant client could observe as non-standard:
 | Async Task lifecycle (`Location` → `GET Task`) | ✅ | TaskService maps Proxmox UPIDs; 202 `Location` resolves to `GET /TaskService/Tasks/{upid}`. |
 | `OData-Version: 4.0` header | ✅ | Emitted on all responses. |
 | HTTP method handling | ✅ | `OPTIONS` (204 + `Allow`), `HEAD`, and `405 + Allow` for unsupported methods (e.g. PUT). |
-| ETag / If-Match concurrency | 🟡 | Weak `ETag` emitted on GET 200; `If-Match` not yet honored on PATCH. |
+| ETag / If-Match concurrency | ✅ | Weak `ETag` on GET 200; `If-Match` honored on PATCH (Systems + SecureBoot) → `412 PreconditionFailed` on a stale tag; `*` always matches. |
 | OData query (`$expand`, `$select`, `$filter`) | ❌ | |
 | Collection pagination (`Members@odata.nextLink`) | ❌ | Collections small; returned whole. |
 | `$metadata` / odata / Registry / JsonSchema discovery | 🟡 | `$metadata` CSDL + `/redfish/v1/odata` served; Registries/JsonSchemas present (empty). |
