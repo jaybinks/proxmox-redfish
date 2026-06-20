@@ -1,0 +1,16 @@
+#!/bin/sh
+# prerm -- stop the service before files are removed.
+set -e
+
+case "$1" in
+    remove|deconfigure|upgrade)
+        if [ -d /run/systemd/system ]; then
+            systemctl stop proxmox-redfish.service >/dev/null 2>&1 || true
+            if [ "$1" != "upgrade" ]; then
+                systemctl disable proxmox-redfish.service >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+esac
+
+exit 0

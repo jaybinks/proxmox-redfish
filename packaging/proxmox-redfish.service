@@ -1,0 +1,17 @@
+[Unit]
+Description=Proxmox Redfish Daemon
+Documentation=https://github.com/jaybinks/proxmox-redfish
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Root is required: SecureBoot enrollment writes the VM efidisk LVM volume (dd).
+User=root
+EnvironmentFile=/etc/proxmox-redfish/params.env
+ExecStart=/opt/proxmox-redfish/venv/bin/python /opt/proxmox-redfish/src/proxmox_redfish/proxmox_redfish.py --port 8443
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

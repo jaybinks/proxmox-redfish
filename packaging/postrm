@@ -1,0 +1,34 @@
+#!/bin/sh
+# postrm -- clean up after removal. `purge` removes EVERY trace of the app.
+set -e
+
+APP=/opt/proxmox-redfish
+ETC=/etc/proxmox-redfish
+STATE=/var/lib/proxmox-redfish
+
+case "$1" in
+    remove)
+        # Drop the venv we created in postinst (not tracked by dpkg).
+        rm -rf "$APP/venv"
+        # If /opt/proxmox-redfish is now empty of packaged files, remove it.
+        rmdir "$APP" 2>/dev/null || true
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+        fi
+        ;;
+    purge)
+        # Remove everything the package or its scripts ever created.
+        rm -rf "$APP"
+        rm -rf "$STATE"
+        rm -rf "$ETC"
+        rm -f /lib/systemd/system/proxmox-redfish.service
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            systemctl reset-failed proxmox-redfish.service >/dev/null 2>&1 || true
+        fi
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+esac
+
+exit 0

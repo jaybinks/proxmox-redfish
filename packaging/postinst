@@ -1,0 +1,59 @@
+#!/bin/sh
+# postinst -- configure proxmox-redfish after files are unpacked.
+set -e
+
+APP=/opt/proxmox-redfish
+ETC=/etc/proxmox-redfish
+STATE=/var/lib/proxmox-redfish
+
+case "$1" in
+    configure)
+        # Build an isolated venv that can see the apt-provided python3-requests /
+        # python3-cryptography (system-site-packages), and add the two pure-Python
+        # deps from the vendored offline wheels (fallback to PyPI if unavailable).
+        if [ ! -x "$APP/venv/bin/python" ]; then
+            python3 -m venv --system-site-packages "$APP/venv"
+        fi
+        "$APP/venv/bin/pip" install --quiet --upgrade pip >/dev/null 2>&1 || true
+        if ! "$APP/venv/bin/pip" install --quiet --no-index --find-links "$APP/wheels" \
+                proxmoxer requests-toolbelt >/dev/null 2>&1; then
+            "$APP/venv/bin/pip" install --quiet proxmoxer requests-toolbelt >/dev/null 2>&1 \
+                || echo "proxmox-redfish: WARNING - could not install proxmoxer/requests-toolbelt; install manually." >&2
+        fi
+
+        # Runtime directories.
+        mkdir -p "$STATE/secureboot" "$STATE/varstores"
+        chmod 0750 "$STATE" "$STATE/secureboot"
+        mkdir -p "$ETC"
+
+        # Ship the SecureBoot profile catalog example if no live one exists.
+        if [ ! -f "$ETC/secureboot_profiles.json" ] && [ -f "$APP/config/secureboot_profiles.json.example" ]; then
+            cp "$APP/config/secureboot_profiles.json.example" "$ETC/secureboot_profiles.json"
+        fi
+
+        # Generate a self-signed TLS cert for the Redfish endpoint if none present.
+        if [ ! -f "$ETC/server.crt" ] || [ ! -f "$ETC/server.key" ]; then
+            CN="$(hostname -f 2>/dev/null || hostname)"
+            openssl req -x509 -newkey rsa:4096 -nodes -days 825 \
+                -keyout "$ETC/server.key" -out "$ETC/server.crt" \
+                -subj "/CN=${CN}" >/dev/null 2>&1 || true
+            chmod 0640 "$ETC/server.key" 2>/dev/null || true
+        fi
+        chmod 0640 "$ETC/params.env" 2>/dev/null || true
+
+        # Enable (but do not start -- the admin must set credentials first).
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            systemctl enable proxmox-redfish.service >/dev/null 2>&1 || true
+        fi
+
+        echo "proxmox-redfish installed."
+        echo "  1. Edit ${ETC}/params.env (set PROXMOX_HOST/USER/PASSWORD)."
+        echo "  2. systemctl start proxmox-redfish"
+        echo "  Endpoint: https://<host>:8443/redfish/v1"
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+esac
+
+exit 0

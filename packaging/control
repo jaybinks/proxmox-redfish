@@ -1,0 +1,12 @@
+Package: proxmox-redfish
+Version: @VERSION@
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: Jay Binks <jaybinks@gmail.com>
+Depends: python3 (>= 3.9), python3-venv, python3-requests, python3-cryptography, openssl, adduser
+Description: Redfish API daemon for Proxmox VE
+ Exposes a DMTF Redfish API in front of Proxmox VE virtual machines, including
+ power control, virtual media, boot configuration, and UEFI Secure Boot key
+ management. Built for bare-metal provisioning tools (Metal3, OpenStack Ironic,
+ OpenShift ZTP, sushy). Validated against the DMTF Redfish-Service-Validator.
