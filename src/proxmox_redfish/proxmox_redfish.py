@@ -2267,6 +2267,16 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
             response = {"error": {"code": "Base.1.0.GeneralError", "message": message}}
         elif path.startswith("/redfish/v1/SessionService/Sessions/") and len(parts) == 6:
             response, status_code = redfish_core.delete_session(parts[5], sessions)
+        elif secureboot.is_secureboot_path(parts):
+            proxmox = get_proxmox_api(self.headers)
+            result = secureboot.route_delete(proxmox, parts)
+            if result is secureboot.NOT_HANDLED:
+                status_code = 404
+                response = {
+                    "error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Resource not found: {path}"}
+                }
+            else:
+                response, status_code = result  # type: ignore[misc]
         else:
             status_code = 404
             response = {"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Resource not found: {path}"}}

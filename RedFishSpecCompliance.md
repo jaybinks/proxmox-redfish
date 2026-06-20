@@ -81,7 +81,7 @@ account management, firmware update). Coverage should be read against that goal.
 | `…/SecureBoot/Actions/SecureBoot.ResetKeys` | POST | ✅ | `ResetAllKeysToDefault` / `DeleteAllKeys` / `DeletePK` → varstore profiles. |
 | `…/SecureBoot/SecureBootDatabases` | GET | ✅ | Collection PK / KEK / db / dbx. |
 | `…/SecureBootDatabases/{dbid}` | GET | ✅ | `@odata.type` `#SecureBootDatabase.v1_0_2.SecureBootDatabase`. |
-| `…/SecureBootDatabases/{dbid}/Certificates` | GET, POST, DELETE | ❌ → P3/P4 | Only the link today; cert CRUD is roadmapped. |
+| `…/SecureBootDatabases/{dbid}/Certificates` | GET, POST, DELETE | ✅ | Public-cert CRUD (PEM/DER); private keys rejected (INV-13); staged per-VM; `PATCH SecureBootEnable=true` builds a varstore from staged certs via `virt-fw-vars`. |
 | `…/SecureBootDatabases/{dbid}/Signatures` | GET | ❌ | Hash signatures (dbx) not implemented. |
 | `SecureBootDesiredMode` (v1.2.0) | PATCH | ❌ → P2 | |
 | `dbr` / `dbt` / `*Default` databases | GET | ❌ | Only the four core databases exposed. |

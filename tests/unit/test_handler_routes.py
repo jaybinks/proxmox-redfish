@@ -150,6 +150,35 @@ class HandlerRouteTests(unittest.TestCase):
         self.assertIn("202", status_line(h))
         self.assertTrue(header_present(h, "Location"))
 
+    # SecureBoot certificate POST/DELETE wiring -----------------------------
+    def test_cert_post_routes_to_add_cert(self):
+        body = json.dumps({"CertificateString": "x", "CertificateType": "PEM"}).encode()
+        path = "/redfish/v1/Systems/100/SecureBoot/SecureBootDatabases/PK/Certificates"
+        h = make_handler(method="POST", path=path, body=body)
+        with patch("proxmox_redfish.secureboot.add_cert", return_value=({"Id": "abc"}, 201)) as m:
+            h.do_POST()
+        m.assert_called_once()
+        self.assertEqual(m.call_args[0][1], "PK")
+
+    def test_cert_delete_routes_to_delete_cert(self):
+        path = "/redfish/v1/Systems/100/SecureBoot/SecureBootDatabases/db/Certificates/0123456789abcdef"
+        h = make_handler(method="DELETE", path=path)
+        with patch("proxmox_redfish.secureboot.delete_cert", return_value=({}, 204)) as m:
+            h.do_DELETE()
+        m.assert_called_once_with(100, "db", "0123456789abcdef")
+        self.assertIn("204", status_line(h))
+
+    def test_private_key_rejected_end_to_end(self):
+        # Real wiring (no leaf patch): a private key POST must be refused with 400.
+        body = json.dumps(
+            {"CertificateString": "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----"}
+        ).encode()
+        path = "/redfish/v1/Systems/100/SecureBoot/SecureBootDatabases/PK/Certificates"
+        h = make_handler(method="POST", path=path, body=body)
+        h.do_POST()
+        self.assertIn("400", status_line(h))
+        self.assertEqual(body_json(h)["error"]["code"], "Base.1.0.ActionParameterValueError")
+
 
 if __name__ == "__main__":
     unittest.main()

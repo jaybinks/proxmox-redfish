@@ -244,9 +244,14 @@ def patch_secureboot(proxmox: Any, vmid: int, data: Dict[str, Any]) -> Tuple[Dic
     if not isinstance(enable, bool):
         return _value_error("SecureBootEnable must be a boolean.", "SecureBootEnable")
     profiles = load_profiles()
-    profile_name = resolve_profile_name(profiles, f"SecureBootEnable:{str(enable).lower()}")
     try:
-        result = apply_profile(proxmox, vmid, profile_name)
+        # Dynamic path: if public certs have been staged for this VM, build a varstore
+        # from them. Otherwise fall back to the static profile image.
+        if enable and _staged_certs_by_db(vmid):
+            result = apply_staged_certs(proxmox, vmid)
+        else:
+            profile_name = resolve_profile_name(profiles, f"SecureBootEnable:{str(enable).lower()}")
+            result = apply_profile(proxmox, vmid, profile_name)
     except hostops.HostOpError as exc:
         return sb_error(exc)
     state = read_state(vmid)
@@ -319,6 +324,166 @@ def get_db(vmid: int, dbid: str) -> Tuple[Dict[str, Any], int]:
 
 
 # --------------------------------------------------------------------------- #
+# Certificate staging + CRUD (Phase 4)
+# --------------------------------------------------------------------------- #
+def _certs_dir(vmid: int, dbid: str) -> str:
+    return os.path.join(hostops.state_dir(), f"vm-{vmid}", "sb-certs", dbid)
+
+
+def _cert_id(pem: str) -> str:
+    """Deterministic, traversal-safe id derived from the cert content."""
+    import hashlib
+
+    return hashlib.sha256(pem.encode("utf-8")).hexdigest()[:16]
+
+
+def _list_staged(vmid: int, dbid: str) -> List[str]:
+    directory = _certs_dir(vmid, dbid)
+    try:
+        return sorted(f[:-4] for f in os.listdir(directory) if f.endswith(".pem"))
+    except FileNotFoundError:
+        return []
+
+
+def _read_staged(vmid: int, dbid: str, cert_id: str) -> Optional[str]:
+    # cert_id is our own 16-hex-char id; reject anything else (no path traversal).
+    if not (len(cert_id) == 16 and all(c in "0123456789abcdef" for c in cert_id)):
+        return None
+    path = os.path.join(_certs_dir(vmid, dbid), f"{cert_id}.pem")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read()
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def _cert_body(vmid: int, dbid: str, cert_id: str, pem: str) -> Dict[str, Any]:
+    base = f"/redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}/Certificates/{cert_id}"
+    body: Dict[str, Any] = {
+        "@odata.id": base,
+        "@odata.type": "#Certificate.v1_11_0.Certificate",
+        "Id": cert_id,
+        "Name": f"{dbid} Certificate",
+        "CertificateType": "PEM",
+        "CertificateString": pem,
+    }
+    # Enrich with parsed metadata when cryptography is available (best-effort).
+    try:
+        from cryptography import x509
+
+        cert = x509.load_pem_x509_certificate(pem.encode("utf-8"))
+        body["ValidNotBefore"] = cert.not_valid_before_utc.isoformat()
+        body["ValidNotAfter"] = cert.not_valid_after_utc.isoformat()
+        body["SerialNumber"] = hex(cert.serial_number)
+        body["Subject"] = {"CommonName": cert.subject.rfc4514_string()}
+        body["Issuer"] = {"CommonName": cert.issuer.rfc4514_string()}
+    except Exception:  # noqa: BLE001 - metadata is optional, never fail the GET
+        pass
+    return body
+
+
+def get_cert_collection(vmid: int, dbid: str) -> Tuple[Dict[str, Any], int]:
+    if dbid not in SB_DATABASES:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"db {dbid} not found"}}, 404)
+    base = f"/redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}/Certificates"
+    members = [{"@odata.id": f"{base}/{cid}"} for cid in _list_staged(vmid, dbid)]
+    return (
+        {
+            "@odata.id": base,
+            "@odata.type": "#CertificateCollection.CertificateCollection",
+            "Name": f"{dbid} Certificate Collection",
+            "Members@odata.count": len(members),
+            "Members": members,
+        },
+        200,
+    )
+
+
+def get_cert(vmid: int, dbid: str, cert_id: str) -> Tuple[Dict[str, Any], int]:
+    pem = _read_staged(vmid, dbid, cert_id)
+    if pem is None:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": "certificate not found"}}, 404)
+    return _cert_body(vmid, dbid, cert_id, pem), 200
+
+
+def add_cert(vmid: int, dbid: str, data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+    if dbid not in SB_DATABASES:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"db {dbid} not found"}}, 404)
+    if not isinstance(data, dict) or "CertificateString" not in data:
+        return _value_error("POST body must include CertificateString.", "CertificateString")
+    cert_string = data["CertificateString"]
+    cert_type = data.get("CertificateType", "PEM")
+    if not isinstance(cert_string, str):
+        return _value_error("CertificateString must be a string.", "CertificateString")
+    try:
+        normalized = hostops.validate_public_certificate(cert_string, cert_type)
+    except hostops.HostOpError as exc:
+        return sb_error(exc)
+    cert_id = _cert_id(normalized)
+    directory = _certs_dir(vmid, dbid)
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, f"{cert_id}.pem")
+    fd, tmp = tempfile.mkstemp(prefix=f".{cert_id}.", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(normalized)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return _cert_body(vmid, dbid, cert_id, normalized), 201
+
+
+def delete_cert(vmid: int, dbid: str, cert_id: str) -> Tuple[Dict[str, Any], int]:
+    if dbid not in SB_DATABASES:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"db {dbid} not found"}}, 404)
+    if _read_staged(vmid, dbid, cert_id) is None:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": "certificate not found"}}, 404)
+    os.unlink(os.path.join(_certs_dir(vmid, dbid), f"{cert_id}.pem"))
+    return {}, 204
+
+
+def _staged_certs_by_db(vmid: int) -> Dict[str, List[str]]:
+    result: Dict[str, List[str]] = {}
+    for dbid in SB_DATABASES:
+        pems = [p for cid in _list_staged(vmid, dbid) if (p := _read_staged(vmid, dbid, cid))]
+        if pems:
+            result[dbid] = pems
+    return result
+
+
+def apply_staged_certs(proxmox: Any, vmid: int) -> hostops.WriteResult:
+    """Dynamic build: assemble a varstore from staged public certs and enroll it."""
+    certs_by_db = _staged_certs_by_db(vmid)
+    if not certs_by_db:
+        raise hostops.TemplateMissingError("No staged certificates to build a varstore from")
+    template = os.getenv("REDFISH_SB_BLANK_TEMPLATE", os.path.join(hostops.varstore_dir(), "OVMF_VARS_4M.blank.fd"))
+    out_path = os.path.join(hostops.varstore_dir(), f"built-vm-{vmid}.fd")
+    sha = hostops.build_varstore_from_certs(template, certs_by_db, out_path=out_path, secure_boot=True)
+    allow_autostop = os.getenv("REDFISH_SB_ALLOW_AUTOSTOP", "0") == "1"
+    with hostops.stopped_vm_guard(proxmox, vmid, allow_autostop=allow_autostop):
+        efi = hostops.locate_efidisk(proxmox, vmid)
+        result = hostops.write_varstore_image(efi, out_path, expected_sha256=sha)
+    state = {
+        "enabled": True,
+        "profile": "dynamic-certs",
+        "mode": "UserMode" if "PK" in certs_by_db else "SetupMode",
+        "has_pk": "PK" in certs_by_db,
+        "has_kek": "KEK" in certs_by_db,
+        "has_db": "db" in certs_by_db,
+        "has_dbx": "dbx" in certs_by_db,
+        "applied_at": time.time(),
+        "image_sha256": result.image_sha256,
+        "dry_run": result.dry_run,
+    }
+    write_state(vmid, state)
+    return result
+
+
+# --------------------------------------------------------------------------- #
 # Routers (called from the monolith dispatchers)
 # --------------------------------------------------------------------------- #
 def is_secureboot_path(parts: List[str]) -> bool:
@@ -344,6 +509,10 @@ def route_get(proxmox: Any, parts: List[str]) -> Result:
         return get_db_collection(vmid)
     if len(parts) == 8 and parts[6] == "SecureBootDatabases":
         return get_db(vmid, parts[7])
+    if len(parts) == 9 and parts[6] == "SecureBootDatabases" and parts[8] == "Certificates":
+        return get_cert_collection(vmid, parts[7])
+    if len(parts) == 10 and parts[6] == "SecureBootDatabases" and parts[8] == "Certificates":
+        return get_cert(vmid, parts[7], parts[9])
     return NOT_HANDLED
 
 
@@ -369,4 +538,20 @@ def route_post(proxmox: Any, parts: List[str], data: Dict[str, Any]) -> Result:
     # /SecureBoot/Actions/SecureBoot.ResetKeys
     if len(parts) == 8 and parts[6] == "Actions" and parts[7] == "SecureBoot.ResetKeys":
         return action_reset_keys(proxmox, vmid, data)
+    # POST .../SecureBootDatabases/{db}/Certificates
+    if len(parts) == 9 and parts[6] == "SecureBootDatabases" and parts[8] == "Certificates":
+        return add_cert(vmid, parts[7], data)
+    return NOT_HANDLED
+
+
+def route_delete(proxmox: Any, parts: List[str]) -> Result:
+    if not is_secureboot_path(parts):
+        return NOT_HANDLED
+    try:
+        vmid = _vmid_from_parts(parts)
+    except hostops.HostOpError as exc:
+        return sb_error(exc)
+    # DELETE .../SecureBootDatabases/{db}/Certificates/{id}
+    if len(parts) == 10 and parts[6] == "SecureBootDatabases" and parts[8] == "Certificates":
+        return delete_cert(vmid, parts[7], parts[9])
     return NOT_HANDLED

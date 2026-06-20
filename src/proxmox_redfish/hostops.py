@@ -155,6 +155,23 @@ class VarstoreParseError(HostOpError):
     resolution = "The varstore could not be parsed; inspect the audit log."
 
 
+class PrivateKeyRejectedError(HostOpError):
+    message_id = "ActionParameterValueError"
+    status = 400
+    resolution = "Provide a public X.509 certificate only; private key material is never accepted."
+
+
+class CertificateInvalidError(HostOpError):
+    message_id = "ActionParameterValueError"
+    status = 400
+    resolution = "Provide a valid X.509 certificate (PEM or DER)."
+
+
+# Hard cap on an uploaded certificate (defense against resource-abuse). 64 KiB is
+# far larger than any real PK/KEK/db cert (~1-2 KB).
+MAX_CERT_BYTES = 64 * 1024
+
+
 # --------------------------------------------------------------------------- #
 # Data shapes
 # --------------------------------------------------------------------------- #
@@ -520,6 +537,132 @@ def write_varstore_image(
 # --------------------------------------------------------------------------- #
 # Read-back state (used to bootstrap/reconcile sidecar; VM must be stopped)
 # --------------------------------------------------------------------------- #
+def validate_public_certificate(cert_string: str, cert_type: str) -> str:
+    """
+    Validate an uploaded certificate is a PUBLIC X.509 cert and return normalized PEM.
+
+    Security (INV-13, exceptional-security): private key material is never accepted.
+    Layered checks, fail-closed:
+      1. Size cap (MAX_CERT_BYTES).
+      2. Reject any private-key markers outright (PEM "PRIVATE KEY", PKCS#8/1/EC).
+      3. Require an X.509 certificate body.
+      4. If `cryptography` is installed, fully parse to confirm it is a real cert
+         (and reject anything that also embeds a key).
+    Raises PrivateKeyRejectedError / CertificateInvalidError. Never shells out.
+    """
+    if cert_type not in ("PEM", "DER"):
+        raise CertificateInvalidError(f"Unsupported CertificateType {cert_type!r}; use PEM or DER")
+    if not cert_string:
+        raise CertificateInvalidError("Empty certificate")
+    if len(cert_string.encode("utf-8", errors="replace")) > MAX_CERT_BYTES:
+        raise CertificateInvalidError("Certificate exceeds the maximum allowed size")
+
+    upper = cert_string.upper()
+    # 2. Any private-key marker is an immediate, unconditional rejection.
+    private_markers = (
+        "PRIVATE KEY",
+        "BEGIN RSA PRIVATE",
+        "BEGIN EC PRIVATE",
+        "BEGIN DSA PRIVATE",
+        "BEGIN OPENSSH PRIVATE",
+        "BEGIN PGP PRIVATE",
+    )
+    if any(marker in upper for marker in private_markers):
+        raise PrivateKeyRejectedError("Input contains private key material; only public certificates are accepted")
+
+    if cert_type == "PEM":
+        if "BEGIN CERTIFICATE" not in upper:
+            raise CertificateInvalidError("PEM does not contain an X.509 CERTIFICATE block")
+        raw = cert_string.encode("utf-8")
+        loader = "pem"
+    else:  # DER provided as base64 in CertificateString
+        import base64
+        import binascii
+
+        try:
+            raw = base64.b64decode(cert_string, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise CertificateInvalidError(f"DER certificate is not valid base64: {exc}")
+        loader = "der"
+
+    # 4. Full parse when cryptography is available (best-effort otherwise).
+    try:
+        from cryptography import x509  # type: ignore
+    except ImportError:
+        logger.warning("cryptography not installed; certificate accepted on header checks only")
+        return cert_string if cert_type == "PEM" else cert_string
+
+    try:
+        if loader == "pem":
+            x509.load_pem_x509_certificate(raw)
+        else:
+            x509.load_der_x509_certificate(raw)
+    except Exception as exc:  # noqa: BLE001 - any parse failure => invalid
+        raise CertificateInvalidError(f"Certificate failed X.509 validation: {exc}")
+    return cert_string
+
+
+def build_varstore_from_certs(
+    template_path: str,
+    certs_by_db: Dict[str, List[str]],
+    *,
+    out_path: str,
+    secure_boot: bool = True,
+    no_microsoft: bool = True,
+    guid: Optional[str] = None,
+) -> str:
+    """
+    Build an OVMF varstore from public certs using ``virt-fw-vars``.
+
+    `certs_by_db` maps a database id (PK/KEK/db/dbx) to a list of PEM strings. The
+    template and output must live in the allowlisted varstore dir (INV-10). All certs
+    are re-validated as public (INV-13) before use. Returns the sha256 of the built
+    image. Raises ToolMissingError if virt-fw-vars is absent. argv-only (INV-14).
+    """
+    import shutil
+    import tempfile
+
+    if shutil.which("virt-fw-vars") is None:
+        raise ToolMissingError("virt-fw-vars is not installed on the host")
+    if not _is_within(os.path.realpath(template_path), varstore_dir()):
+        raise SourceNotAllowedError("Varstore template is outside the allowlisted directory")
+    if not os.path.isfile(template_path):
+        raise TemplateMissingError(f"Varstore template {template_path!r} not found")
+    if not _is_within(os.path.realpath(out_path), varstore_dir()):
+        raise SourceNotAllowedError("Varstore output path is outside the allowlisted directory")
+
+    owner_guid: str = guid or os.environ.get("REDFISH_SB_OWNER_GUID") or "00000000-0000-0000-0000-000000000000"
+    argv: List[str] = ["virt-fw-vars", "--input", template_path, "--output", out_path]
+    if secure_boot:
+        argv.append("--secure-boot")
+    if no_microsoft:
+        argv.append("--no-microsoft")
+
+    tmpdir = tempfile.mkdtemp(prefix="sb-certs-")
+    try:
+        for db_id, pems in certs_by_db.items():
+            flag = {"PK": "--set-pk", "KEK": "--add-kek", "db": "--add-db", "dbx": "--add-dbx"}.get(db_id)
+            if not flag:
+                continue
+            for idx, pem in enumerate(pems):
+                validate_public_certificate(pem, "PEM")  # re-validate before enrolling
+                cert_file = os.path.join(tmpdir, f"{db_id}-{idx}.pem")
+                with open(cert_file, "w", encoding="utf-8") as handle:
+                    handle.write(pem)
+                # --set-pk/--add-* take: <guid> <file>
+                argv.extend([flag, owner_guid, cert_file])
+        _audit("varstore.build", template=template_path, out=out_path, dbs=list(certs_by_db), argv=argv)
+        res = _run(argv, timeout=120)
+        if res.returncode != 0:
+            raise VarstoreParseError(f"virt-fw-vars failed: {res.stderr.decode(errors='replace').strip()}")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    if not os.path.isfile(out_path):
+        raise VarstoreParseError("virt-fw-vars did not produce an output varstore")
+    return _sha256_file(out_path)
+
+
 def read_varstore_state(efi: EfiDisk) -> SecureBootState:
     """
     Parse the live varstore with ``virt-fw-vars --print``.

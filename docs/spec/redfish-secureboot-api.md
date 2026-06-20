@@ -11,7 +11,8 @@ in `docs/redfish-reference/mockups/`. Auth: existing daemon Basic/Session over T
 /redfish/v1/Systems/{vmid}/SecureBoot/Actions/SecureBoot.ResetKeys   POST
 /redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases            GET
 /redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}     GET        (dbid ∈ PK|KEK|db|dbx)
-/redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}/Certificates  GET, POST(P3), DELETE(P4)
+/redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}/Certificates           GET, POST
+/redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}/Certificates/{certId}  GET, DELETE
 ```
 
 ## GET /SecureBoot
@@ -113,7 +114,7 @@ Returns 200 with a result message (or 202+Task). Invalid value → 400 `Property
 Phase 4 adds the per-database `#SecureBootDatabase.ResetKeys` action
 (`ResetKeysType` ∈ {`ResetAllKeysToDefault`, `DeleteAllKeys`}).
 
-## POST /SecureBoot/SecureBootDatabases/{dbid}/Certificates  (Phase 3)
+## POST /SecureBoot/SecureBootDatabases/{dbid}/Certificates
 
 Request — **public certificate only**:
 ```json
@@ -122,5 +123,16 @@ Request — **public certificate only**:
   "CertificateType": "PEM"
 }
 ```
-Accumulated certs are built into a varstore via `virt-fw-vars`, then applied. Private-key input is
-rejected (INV-13). DELETE (Phase 4) removes a cert by Id.
+Returns `201` with the `Certificate` body (Id = first 16 hex of the content sha256, so re-POSTing
+the same cert is idempotent). **Private-key input is rejected with `400 ActionParameterValueError`**
+(INV-13) — checked before storage, via marker scan + `cryptography` X.509 parse. DER is accepted as
+base64 in `CertificateString`. Staged per-VM under the state dir.
+
+`GET .../Certificates` lists members; `GET .../Certificates/{id}` returns the cert (with
+Subject/Issuer/validity parsed when `cryptography` is installed); `DELETE .../Certificates/{id}`
+removes it (`204`).
+
+When `PATCH /SecureBoot {"SecureBootEnable": true}` runs and staged certs exist for the VM, the
+daemon builds a varstore from them (blank `OVMF_VARS_4M.fd` template + `virt-fw-vars`
+`--set-pk/--add-kek/--add-db --secure-boot --no-microsoft`) and enrolls it through the guarded
+executor (all INV-* apply). With no staged certs it falls back to the static profile image.

@@ -12,3 +12,5 @@ black>=21.0.0
 flake8>=3.8.0
 isort>=5.0.0
 mypy>=0.900
+# Optional: full X.509 validation for SecureBoot certificate enrollment
+cryptography>=41.0.0

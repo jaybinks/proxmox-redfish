@@ -55,19 +55,20 @@ UEFI yields a 4m efidisk and a subsequently-successful SecureBoot enroll ✅.
 
 ---
 
-## Phase 4 — SecureBoot completion (L)
+## Phase 4 — SecureBoot completion (L)  ✅ core done
 
 Finish the SecureBoot resource to full schema (extends ROADMAP P3/P4).
 
-| Item | Change |
-|------|--------|
-| Certificate collection | `GET/POST/DELETE .../SecureBootDatabases/{db}/Certificates` (public PEM/DER only; INV-13). |
-| Dynamic varstore build | Build a varstore from POSTed PK/KEK/db certs via `virt-fw-vars` (`hostops.build_varstore_from_certs`), then apply through the Phase-1 executor. Removes the need for pre-baked images. |
-| Per-database ResetKeys | `#SecureBootDatabase.ResetKeys`. |
-| `SecureBootDesiredMode` (v1.2.0), `Signatures`, `dbr`/`dbt`/`*Default` | Full database/property set. |
+| Item | Change | Status |
+|------|--------|--------|
+| Certificate collection | `GET/POST/DELETE .../SecureBootDatabases/{db}/Certificates` (public PEM/DER only; INV-13). | ✅ |
+| Dynamic varstore build | Build from staged PK/KEK/db certs via `virt-fw-vars` (`hostops.build_varstore_from_certs`), apply through the Phase-1 executor. `PATCH SecureBootEnable=true` uses staged certs when present. | ✅ |
+| Per-database ResetKeys | `#SecureBootDatabase.ResetKeys`. | ⬜ |
+| `SecureBootDesiredMode` (v1.2.0), `Signatures`, `dbr`/`dbt`/`*Default` | Full database/property set. | ⬜ |
 
-**Acceptance:** cert CRUD validates against `Certificate.v1_11_0`; a varstore built
-from POSTed certs enrolls correctly; private-key input rejected by tests.
+**Acceptance:** cert CRUD works with public PEM/DER ✅; varstore built from staged certs
+enrolls via the guarded executor ✅; **private-key input rejected** (unit + end-to-end
+handler tests) ✅. Remaining: per-database ResetKeys, Signatures, desired-mode, default DBs.
 
 ---
 
