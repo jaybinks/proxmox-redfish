@@ -2067,7 +2067,9 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         status_code = 200
         self.protocol_version = "HTTP/1.1"
 
-        if path == "/redfish/v1/SessionService/Sessions" and AUTH == "Session":
+        # Session login is always available (a standard Redfish login), regardless of
+        # whether Basic auth is also accepted -- maximizes client compatibility.
+        if path == "/redfish/v1/SessionService/Sessions":
             try:
                 data = json.loads(post_data.decode("utf-8"))
                 username = data.get("UserName")
