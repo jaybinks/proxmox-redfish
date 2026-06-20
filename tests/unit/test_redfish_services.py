@@ -27,7 +27,7 @@ class TestChassis:
     def test_member_is_virtualmachine(self):
         body, code = rs.build_chassis(_proxmox(), "100")
         assert code == 200
-        assert body["ChassisType"] == "VirtualMachine"
+        assert body["ChassisType"] == "Other"
         assert body["Power"]["@odata.id"].endswith("/Power")
         assert body["Links"]["ComputerSystems"][0]["@odata.id"] == "/redfish/v1/Systems/100"
 

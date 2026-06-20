@@ -339,9 +339,9 @@ class TestRedfishProxmox(unittest.TestCase):
         response = get_bios(mock_proxmox, self.test_vm_id)
 
         self.assertIn("@odata.id", response)
-        self.assertIn("FirmwareMode", response)
         self.assertIn("Attributes", response)
-        self.assertEqual(response["FirmwareMode"], "BIOS")  # Based on mock config "seabios"
+        self.assertIn("FirmwareMode", response["Attributes"])
+        self.assertEqual(response["Attributes"]["FirmwareMode"], "BIOS")  # mock config "seabios"
 
     def test_validate_token_basic_auth_success(self):
         """Test successful Basic authentication"""

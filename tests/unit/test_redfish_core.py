@@ -22,7 +22,7 @@ from proxmox_redfish.proxmox_redfish import power_cycle  # noqa: E402
 class TestServiceRoot:
     def test_advertises_all_implemented_services(self):
         root = redfish_core.build_service_root()
-        for key in ("Systems", "Managers", "SessionService", "TaskService"):
+        for key in ("Systems", "Managers", "SessionService", "Tasks"):
             assert root[key]["@odata.id"].startswith("/redfish/v1")
         assert root["Links"]["Sessions"]["@odata.id"] == "/redfish/v1/SessionService/Sessions"
 

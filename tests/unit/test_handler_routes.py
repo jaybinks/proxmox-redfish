@@ -66,7 +66,7 @@ class HandlerRouteTests(unittest.TestCase):
         h.do_GET()
         data = body_json(h)
         self.assertEqual(data["RedfishVersion"], "1.18.0")
-        for key in ("Systems", "Managers", "SessionService", "TaskService"):
+        for key in ("Systems", "Managers", "SessionService", "Tasks"):
             self.assertIn(key, data)
 
     # SessionService --------------------------------------------------------
@@ -191,7 +191,7 @@ class HandlerRouteTests(unittest.TestCase):
         self.proxmox.nodes.return_value.qemu.get.return_value = [{"vmid": 100}]
         h = make_handler(path="/redfish/v1/Chassis/100")
         h.do_GET()
-        self.assertEqual(body_json(h)["ChassisType"], "VirtualMachine")
+        self.assertEqual(body_json(h)["ChassisType"], "Other")
 
     def test_account_service(self):
         h = make_handler(path="/redfish/v1/AccountService")

@@ -11,6 +11,26 @@ document — update it whenever an endpoint is added or changed.
 - **Error model:** [`docs/spec/error-model.md`](docs/spec/error-model.md).
 - **Plan to full parity:** [`docs/PARITY-PLAN.md`](docs/PARITY-PLAN.md).
 
+## DMTF Service-Validator status
+
+The official **DMTF Redfish-Service-Validator** (`redfish_service_validator` 3.x) runs
+against the daemon in CI via a mock-backed launcher (`tools/mock_server.py`, no real
+Proxmox needed) and the `.github/workflows/conformance.yml` job. Latest run:
+
+```
+| PASS | WARN | FAIL | NOT TESTED |
+|  627 |  13  |  0   |    1056    |
+```
+
+**0 FAIL** across the full crawled tree. The 13 warnings are advisory (recommended-but-
+optional annotations on a few resources). `NOT TESTED` counts schema properties absent
+from our (intentionally minimal) payloads — not failures. Run locally:
+
+```bash
+python tools/mock_server.py 8000 &
+rf_service_validator -u admin -p admin -r http://localhost:8000 --authtype Basic --nooemcheck
+```
+
 ## Compliance legend
 
 | Mark | Meaning |

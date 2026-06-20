@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<!-- Google Tag Manager -->
+   <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start': new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0], j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f); })(window,document,'script','dataLayer','GTM-PTN3J7R');</script>
+<!-- End Google Tag Manager -->
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-1WJLJWPCTC"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-1WJLJWPCTC');
+</script>
+
+  <meta charset="utf-8">
+  <meta content="initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport">
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-touch-fullscreen" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <title>Redfish(TM) Developer Hub |</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<link rel="shortcut icon" href="https://redfish.dmtf.org/sites/all/themes/dmtf2017/favicon.ico" type="image/vnd.microsoft.icon" />
+<link rel="canonical" href="https://redfish.dmtf.org/" />
+<link rel="shortlink" href="https://redfish.dmtf.org/" />
+<meta property="og:site_name" content="Redfish(TM) Developer Hub" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://redfish.dmtf.org/" />
+<meta property="og:title" content="Redfish(TM) Developer Hub" />
+    <style type="text/css" media="all">
+@import url("https://redfish.dmtf.org/modules/system/system.base.css?tcw457");
+</style>
+<style type="text/css" media="all">
+@import url("https://redfish.dmtf.org/modules/field/theme/field.css?tcw457");
+@import url("https://redfish.dmtf.org/modules/node/node.css?tcw457");
+@import url("https://redfish.dmtf.org/modules/search/search.css?tcw457");
+@import url("https://redfish.dmtf.org/modules/user/user.css?tcw457");
+@import url("https://redfish.dmtf.org/sites/all/modules/contrib/views/css/views.css?tcw457");
+</style>
+<style type="text/css" media="all">
+@import url("https://redfish.dmtf.org/sites/all/modules/contrib/ctools/css/ctools.css?tcw457");
+</style>
+<style type="text/css" media="all">
+@import url("https://redfish.dmtf.org/sites/all/themes/dmtf2017/css/dmtf.css?tcw457");
+@import url("https://redfish.dmtf.org/sites/all/themes/dmtf2017/css/system.menus.css?tcw457");
+@import url("https://redfish.dmtf.org/sites/all/themes/dmtf2017/css/system.theme.css?tcw457");
+</style>
+    <script type="text/javascript" src="https://redfish.dmtf.org/sites/all/modules/contrib/jquery_update/replace/jquery/1.12/jquery.min.js?v=1.12.4"></script>
+<script type="text/javascript" src="https://redfish.dmtf.org/misc/jquery-extend-3.4.0.js?v=1.12.4"></script>
+<script type="text/javascript" src="https://redfish.dmtf.org/misc/jquery-html-prefilter-3.5.0-backport.js?v=1.12.4"></script>
+<script type="text/javascript" src="https://redfish.dmtf.org/misc/jquery.once.js?v=1.2"></script>
+<script type="text/javascript" src="https://redfish.dmtf.org/misc/drupal.js?tcw457"></script>
+<script type="text/javascript" src="https://redfish.dmtf.org/sites/all/modules/contrib/jquery_update/js/jquery_browser.js?v=0.0.1"></script>
+<script type="text/javascript" src="https://redfish.dmtf.org/sites/all/modules/contrib/iframe/iframe.js?tcw457"></script>
+<script type="text/javascript" src="https://redfish.dmtf.org/sites/all/modules/contrib/google_analytics/googleanalytics.js?tcw457"></script>
+<script type="text/javascript" src="https://www.googletagmanager.com/gtag/js?id=UA-5157416-1"></script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments)};gtag("js", new Date());gtag("set", "developer_id.dMDhkMT", true);gtag("config", "UA-5157416-1", {"groups":"default","anonymize_ip":true,"page_path":location.pathname + location.search + location.hash});
+//--><!]]>
+</script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+jQuery.extend(Drupal.settings, {"basePath":"\/","pathPrefix":"","setHasJsCookie":0,"ajaxPageState":{"theme":"dmtf","theme_token":"ReLaqiH-NMW-hSlPBfE2TBHPRQpyNlnBMG7mGGBCVMI","js":{"sites\/all\/modules\/contrib\/jquery_update\/replace\/jquery\/1.12\/jquery.min.js":1,"misc\/jquery-extend-3.4.0.js":1,"misc\/jquery-html-prefilter-3.5.0-backport.js":1,"misc\/jquery.once.js":1,"misc\/drupal.js":1,"sites\/all\/modules\/contrib\/jquery_update\/js\/jquery_browser.js":1,"sites\/all\/modules\/contrib\/iframe\/iframe.js":1,"sites\/all\/modules\/contrib\/google_analytics\/googleanalytics.js":1,"https:\/\/www.googletagmanager.com\/gtag\/js?id=UA-5157416-1":1,"0":1},"css":{"modules\/system\/system.base.css":1,"modules\/system\/system.menus.css":1,"modules\/system\/system.messages.css":1,"modules\/system\/system.theme.css":1,"modules\/field\/theme\/field.css":1,"modules\/node\/node.css":1,"modules\/search\/search.css":1,"modules\/user\/user.css":1,"sites\/all\/modules\/contrib\/views\/css\/views.css":1,"sites\/all\/modules\/contrib\/ctools\/css\/ctools.css":1,"sites\/all\/themes\/dmtf2017\/css\/dmtf.css":1,"sites\/all\/themes\/dmtf2017\/css\/system.messages.css":1,"sites\/all\/themes\/dmtf2017\/css\/system.menus.css":1,"sites\/all\/themes\/dmtf2017\/css\/system.theme.css":1,"sites\/all\/themes\/dmtf2017\/css\/print.css":1}},"googleanalytics":{"account":["UA-5157416-1"],"trackOutbound":1,"trackMailto":1,"trackDownload":1,"trackDownloadExtensions":"7z|aac|arc|arj|asf|asx|avi|bin|csv|doc(x|m)?|dot(x|m)?|exe|flv|gif|gz|gzip|hqx|jar|jpe?g|js|mp(2|3|4|e?g)|mov(ie)?|msi|msp|pdf|phps|png|ppt(x|m)?|pot(x|m)?|pps(x|m)?|ppam|sld(x|m)?|thmx|qtm?|ra(m|r)?|sea|sit|tar|tgz|torrent|txt|wav|wma|wmv|wpd|xls(x|m|b)?|xlt(x|m)|xlam|xml|z|zip","trackUrlFragments":1}});
+//--><!]]>
+</script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js"></script>
+</head>
+<body class="html front not-logged-in no-sidebars page-node page-node- page-node-1 node-type-page" >
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PTN3J7R" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<div class="headroom">
+    <div class="boundary">
+           </div>
+</div>
+
+<header id="header-banner" class="push">
+    <div class="boundary">
+        <button class="menu-btn primary">Menu</button>
+                      <div class="region region-header-banner">
+    <div id="block-block-1" class="block block-block">
+
+    
+  <div class="content">
+    <h1><a title="DMTF" href="https://www.dmtf.org"><img src="/sites/all/themes/dmtf2017/images/dmtf.png" alt="DMTF" class="dmtf-logo"> <span>DMTF<br>
+ Redfish<sup>&reg;</sup> Developers Hub</span></a></h1>
+<img alt="DMTF Redfish" class="redfish-logo" src="/sites/default/files/DMTF_Redfish_logo_R.jpg">  </div>
+</div>
+  </div>
+            
+    </div>
+    
+</header>
+<nav id="main-menu-bar">
+    <div class="boundary">
+       <div class="region region-main-menu-bar">
+    <div id="block-system-main-menu" class="block block-system block-menu">
+
+    <h2>Main menu</h2>
+  
+  <div class="content">
+    <ul class="menu"><li class="first leaf pushy-link"><a href="/" class="active">Home</a></li>
+<li class="pushy-submenu"><a href="/redfish/v1">Mockups
+ <svg viewBox="0 0 7.9 10.9" role="presentation" class="menu-caret-right-icon">
+   <path d="M8,5.5L1.9,11,0.1,9.4,4.4,5.6,0.1,1.8,2,0.1,8,5.5"></path>
+ </svg>
+ <svg viewBox="0 0 11 8" role="presentation" class="menu-caret-down-icon">
+   <path d="M5.6,7.9L0.1,1.9l1.6-1.8l3.8,4.3l3.8-4.3L10.9,2L5.6,7.9"></path>
+ </svg></a><ul class="menu"><li class="first last leaf pushy-link"><a href="/redfish/mockups/v1" title="">Published Mockups</a></li>
+</ul></li>
+<li class="pushy-submenu"><a href="/education">Education
+ <svg viewBox="0 0 7.9 10.9" role="presentation" class="menu-caret-right-icon">
+   <path d="M8,5.5L1.9,11,0.1,9.4,4.4,5.6,0.1,1.8,2,0.1,8,5.5"></path>
+ </svg>
+ <svg viewBox="0 0 11 8" role="presentation" class="menu-caret-down-icon">
+   <path d="M5.6,7.9L0.1,1.9l1.6-1.8l3.8,4.3l3.8-4.3L10.9,2L5.6,7.9"></path>
+ </svg></a><ul class="menu"><li class="first leaf pushy-link"><a href="/node/17">CEOs, CIOs and Data Center Executives</a></li>
+<li class="leaf pushy-link"><a href="/education/presentations">Presentations</a></li>
+<li class="leaf pushy-link"><a href="/education/whitepapers">White Papers</a></li>
+<li class="leaf pushy-link"><a href="/education" title="">Featured Education</a></li>
+<li class="last leaf pushy-link"><a href="/webinars">Webinars</a></li>
+</ul></li>
+<li class="pushy-submenu"><a href="/essentials">Developer Essentials
+ <svg viewBox="0 0 7.9 10.9" role="presentation" class="menu-caret-right-icon">
+   <path d="M8,5.5L1.9,11,0.1,9.4,4.4,5.6,0.1,1.8,2,0.1,8,5.5"></path>
+ </svg>
+ <svg viewBox="0 0 11 8" role="presentation" class="menu-caret-down-icon">
+   <path d="M5.6,7.9L0.1,1.9l1.6-1.8l3.8,4.3l3.8-4.3L10.9,2L5.6,7.9"></path>
+ </svg></a><ul class="menu"><li class="first leaf pushy-link"><a href="/essentials" title="">Essentials Overview</a></li>
+<li class="leaf pushy-link"><a href="/redfish/schema_index" title="Schema Index">Redfish Schema Index</a></li>
+<li class="leaf pushy-link"><a href="https://redfish.dmtf.org/redfish/schema_index/swordfish/v1" title="">Swordfish Schema Index</a></li>
+<li class="leaf pushy-link"><a href="/github">GitHub</a></li>
+<li class="leaf pushy-link"><a href="https://www.dmtf.org/sites/default/files/standards/documents/DSP0266_1.24.0.pdf" title="">Redfish Specification</a></li>
+<li class="leaf pushy-link"><a href="https://www.dmtf.org/sites/default/files/standards/documents/DSP2046_2026.1.pdf" title="">Redfish Resource and Schema Guide</a></li>
+<li class="last leaf pushy-link"><a href="https://www.dmtf.org/sites/default/files/standards/documents/DSP0268_2026.1.pdf" title="">Redfish Data Model Specification</a></li>
+</ul></li>
+<li class="pushy-submenu"><a href="/community">Community
+ <svg viewBox="0 0 7.9 10.9" role="presentation" class="menu-caret-right-icon">
+   <path d="M8,5.5L1.9,11,0.1,9.4,4.4,5.6,0.1,1.8,2,0.1,8,5.5"></path>
+ </svg>
+ <svg viewBox="0 0 11 8" role="presentation" class="menu-caret-down-icon">
+   <path d="M5.6,7.9L0.1,1.9l1.6-1.8l3.8,4.3l3.8-4.3L10.9,2L5.6,7.9"></path>
+ </svg></a><ul class="menu"><li class="first leaf pushy-link"><a href="/community" title="">Community Overview</a></li>
+<li class="leaf pushy-link"><a href="/alliancepartners">Alliance Partners</a></li>
+<li class="last leaf pushy-link"><a href="/userforum" title="">User Forum</a></li>
+</ul></li>
+<li class="last leaf pushy-link"><a href="/about">About</a></li>
+</ul>  </div>
+</div>
+  </div>
+    </div>
+</nav>
+<nav id="off-canvas-menu" class="pushy pushy-right">
+     <div class="region region-main-menu-bar">
+      <div class="region region-main-menu-bar">
+    <div id="block-system-main-menu" class="block block-system block-menu">
+
+    <h2>Main menu</h2>
+  
+  <div class="content">
+    <ul class="menu"><li class="first leaf pushy-link"><a href="/" class="active">Home</a></li>
+<li class="pushy-submenu"><a href="/redfish/v1">Mockups
+ <svg viewBox="0 0 7.9 10.9" role="presentation" class="menu-caret-right-icon">
+   <path d="M8,5.5L1.9,11,0.1,9.4,4.4,5.6,0.1,1.8,2,0.1,8,5.5"></path>
+ </svg>
+ <svg viewBox="0 0 11 8" role="presentation" class="menu-caret-down-icon">
+   <path d="M5.6,7.9L0.1,1.9l1.6-1.8l3.8,4.3l3.8-4.3L10.9,2L5.6,7.9"></path>
+ </svg></a><ul class="menu"><li class="first last leaf pushy-link"><a href="/redfish/mockups/v1" title="">Published Mockups</a></li>
+</ul></li>
+<li class="pushy-submenu"><a href="/education">Education
+ <svg viewBox="0 0 7.9 10.9" role="presentation" class="menu-caret-right-icon">
+   <path d="M8,5.5L1.9,11,0.1,9.4,4.4,5.6,0.1,1.8,2,0.1,8,5.5"></path>
+ </svg>
+ <svg viewBox="0 0 11 8" role="presentation" class="menu-caret-down-icon">
+   <path d="M5.6,7.9L0.1,1.9l1.6-1.8l3.8,4.3l3.8-4.3L10.9,2L5.6,7.9"></path>
+ </svg></a><ul class="menu"><li class="first leaf pushy-link"><a href="/node/17">CEOs, CIOs and Data Center Executives</a></li>
+<li class="leaf pushy-link"><a href="/education/presentations">Presentations</a></li>
+<li class="leaf pushy-link"><a href="/education/whitepapers">White Papers</a></li>
+<li class="leaf pushy-link"><a href="/education" title="">Featured Education</a></li>
+<li class="last leaf pushy-link"><a href="/webinars">Webinars</a></li>
+</ul></li>
+<li class="pushy-submenu"><a href="/essentials">Developer Essentials
+ <svg viewBox="0 0 7.9 10.9" role="presentation" class="menu-caret-right-icon">
+   <path d="M8,5.5L1.9,11,0.1,9.4,4.4,5.6,0.1,1.8,2,0.1,8,5.5"></path>
+ </svg>
+ <svg viewBox="0 0 11 8" role="presentation" class="menu-caret-down-icon">
+   <path d="M5.6,7.9L0.1,1.9l1.6-1.8l3.8,4.3l3.8-4.3L10.9,2L5.6,7.9"></path>
+ </svg></a><ul class="menu"><li class="first leaf pushy-link"><a href="/essentials" title="">Essentials Overview</a></li>
+<li class="leaf pushy-link"><a href="/redfish/schema_index" title="Schema Index">Redfish Schema Index</a></li>
+<li class="leaf pushy-link"><a href="https://redfish.dmtf.org/redfish/schema_index/swordfish/v1" title="">Swordfish Schema Index</a></li>
+<li class="leaf pushy-link"><a href="/github">GitHub</a></li>
+<li class="leaf pushy-link"><a href="https://www.dmtf.org/sites/default/files/standards/documents/DSP0266_1.24.0.pdf" title="">Redfish Specification</a></li>
+<li class="leaf pushy-link"><a href="https://www.dmtf.org/sites/default/files/standards/documents/DSP2046_2026.1.pdf" title="">Redfish Resource and Schema Guide</a></li>
+<li class="last leaf pushy-link"><a href="https://www.dmtf.org/sites/default/files/standards/documents/DSP0268_2026.1.pdf" title="">Redfish Data Model Specification</a></li>
+</ul></li>
+<li class="pushy-submenu"><a href="/community">Community
+ <svg viewBox="0 0 7.9 10.9" role="presentation" class="menu-caret-right-icon">
+   <path d="M8,5.5L1.9,11,0.1,9.4,4.4,5.6,0.1,1.8,2,0.1,8,5.5"></path>
+ </svg>
+ <svg viewBox="0 0 11 8" role="presentation" class="menu-caret-down-icon">
+   <path d="M5.6,7.9L0.1,1.9l1.6-1.8l3.8,4.3l3.8-4.3L10.9,2L5.6,7.9"></path>
+ </svg></a><ul class="menu"><li class="first leaf pushy-link"><a href="/community" title="">Community Overview</a></li>
+<li class="leaf pushy-link"><a href="/alliancepartners">Alliance Partners</a></li>
+<li class="last leaf pushy-link"><a href="/userforum" title="">User Forum</a></li>
+</ul></li>
+<li class="last leaf pushy-link"><a href="/about">About</a></li>
+</ul>  </div>
+</div>
+  </div>
+  </div>
+   </nav>
+
+<main id="main-content">     
+            <div class="boundary">
+                
+        <div id="content" class="content-center">
+              
+                  
+                     
+                      <h1 class="page-title">Welcome to the Redfish Developer Hub</h1>
+                  
+            <div class="region region-content">
+    <div id="block-system-main" class="block block-system">
+
+    
+  <div class="content">
+    <div id="node-1" class="node node-page node-promoted clearfix" about="/node/1" typeof="foaf:Document">
+
+  
+      <span property="dc:title" content="Welcome to the Redfish Developer Hub" class="rdf-meta element-hidden"></span>
+  
+  <div class="content">
+    <div class="field field-name-body field-type-text-with-summary field-label-hidden"><div class="field-items"><div class="field-item even" property="content:encoded"><div class="pull-right" id="top"><img alt="DMTF Redfish Logo" src="/sites/default/files/DMTF_Redfish_logo_R.75.jpg" /></div>
+<p>The <a href="https://www.dmtf.org/">DMTF’s</a> Redfish® Developer Hub is a one-stop, in-depth technical resource – by developers, for developers – designed to provide all the files, tools, community support, tutorials and other advanced education you may need to help you use Redfish.</p>
+<p>Not a developer and looking for more general information? Select your interest:</p>
+<div class="buttons-container"><center><strong><span><a href="https://redfish.dmtf.org/node/17"><button style="background-color:#0066b3; color:white; height: 70px; width: 190px; margin-right:30px"><b>CEOs, CIOs and Data Center Executives</b></button></a><a href="https://redfish.dmtf.org/node/16"><button style="background-color:#0066b3; color:white; height: 70px; width: 189px"><b>System Admins and Redfish Implementers</b></button></a></span></strong></center></div>
+<p> </p>
+<p>Click here to <a href="http://www.dmtf.org/standards/redfish">learn more about the DMTF's Redfish Specification</a> or <a href="http://www.dmtf.org/join/spmf">find out how to join the DMTF Forum responsible for Redfish</a>.</p>
+<p>The Redfish Developer Hub sections are designed to help you quickly find what you need:</p>
+<ul><li><strong><a href="https://redfish.dmtf.org/redfish/v1">Mockups</a></strong> - Click through and explore example Redfish implementations in these interactive online mockups.</li>
+<li><strong><a href="https://redfish.dmtf.org/education">Education</a></strong> - Learn more with DMTF’s developer-focused white papers, tech notes, presentations and webinars.</li>
+<li><a href="https://redfish.dmtf.org/essentials"><strong>Developer Essentials</strong></a> – Access the technical artifacts you need as a developer working with Redfish, all in one place.</li>
+<li><strong><a href="https://redfish.dmtf.org/community">Community</a></strong> – Ask questions, provide feedback and learn about the broad Redfish ecosystem with our community resources.</li>
+</ul><p> </p>
+</div></div></div>  </div>
+
+  
+  
+</div>
+  </div>
+</div>
+  </div>
+        </div>
+
+        
+        </div>
+</main>
+<footer id="footer">
+    <div class="boundary">
+          <div class="region region-footer">
+    <div id="block-block-2" class="block block-block">
+
+    
+  <div class="content">
+    <hr>
+<p class="pull-left">Copyright © 2025 DMTF. All rights reserved.</p>
+<ul class="social inline pull-right">
+	<li><a class="linkedin" href="http://www.linkedin.com/groups?home=&gid=134290"><span data-icon="&#xef24;"></span> LinkedIn</a></li>
+	<li><a class="twitter" href="http://twitter.com/dmtf"><span data-icon="&#xeeee;"></span> Follow DMTF on Twitter</a></li>
+	<li><a class="newsletter" href="https://www.dmtf.org/education/newsletter"><span data-icon="&#xeedf;"></span> Newsletter Sign-Up</a></li>
+</ul>
+  </div>
+</div>
+  </div>
+    </div>
+</footer>
+
+<script type="application/javascript" src="/sites/all/themes/dmtf2017/scripts/pushy.js"></script>
+<script type="application/javascript" src="/sites/all/themes/dmtf2017/scripts/pushy-support.js"></script>
+</body>
+</html>

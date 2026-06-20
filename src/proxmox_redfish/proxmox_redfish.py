@@ -15,6 +15,7 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import secrets
 import socketserver
 import ssl
@@ -875,15 +876,18 @@ def get_bios(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tuple[Dic
         firmware_type = config.get("bios", "seabios")
         firmware_mode = "BIOS" if firmware_type == "seabios" else "UEFI"
 
-        # Minimal BIOS info with link to SMBIOS details
+        # FirmwareMode is non-standard -> expose it inside Attributes (where Bios
+        # allows arbitrary keys), not as a top-level property.
         response = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Bios",
             "@odata.type": "#Bios.v1_2_0.Bios",
             "Id": "Bios",
             "Name": "BIOS Settings",
-            "FirmwareMode": firmware_mode,  # From previous enhancement
-            "Attributes": {"BootOrder": config.get("boot", "order=scsi0;ide2;net0")},
-            "Links": {"SMBIOS": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Bios/SMBIOS"}},
+            "Attributes": {
+                "FirmwareMode": firmware_mode,
+                "BootOrder": config.get("boot", "order=scsi0;ide2;net0"),
+            },
+            "Oem": {"Proxmox": {"SMBIOS": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Bios/SMBIOS"}}},
         }
         return response
     except Exception as e:
@@ -1127,22 +1131,23 @@ def get_storage_detail(
                 "Storage detail retrieval", Exception("Failed to retrieve VM configuration"), vm_id
             )
 
-        # Get disk drives from config
-        drives = []
-        for dev_type in ["scsi", "sata", "ide"]:
-            for i in range(4):
+        # Drives is an ARRAY of links to Drive resources (resolvable via get_drive_detail).
+        base = f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}"
+        drive_links = []
+        for dev_type in ["scsi", "sata", "ide", "virtio"]:
+            for i in range(8):
                 dev_key = f"{dev_type}{i}"
-                if dev_key in config:
-                    drives.append({"Id": dev_key, "Name": f"Drive {dev_key}"})
+                if dev_key in config and "media=cdrom" not in str(config[dev_key]):
+                    drive_links.append({"@odata.id": f"{base}/Drives/{dev_key}"})
 
         response = {
-            "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}",
+            "@odata.id": base,
             "@odata.type": "#Storage.v1_15_0.Storage",
             "Id": storage_id,
             "Name": f"Storage {storage_id}",
-            "Drives": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Drives"},
-            "Volumes": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Volumes"},
-            "Controllers": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Controllers"},
+            "Drives": drive_links,
+            "Volumes": {"@odata.id": f"{base}/Volumes"},
+            "Controllers": {"@odata.id": f"{base}/Controllers"},
         }
         return response
     except Exception as e:
@@ -1167,17 +1172,22 @@ def get_drive_detail(
         if drive_id not in config:
             return {"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Drive {drive_id} not found"}}, 404
 
-        drive_config = config[drive_id]
-        size = parse_disk_size({"size": drive_config})
+        # Parse a byte capacity from "...,size=32G"; CapacityBytes must be an integer.
+        capacity_bytes = None
+        match = re.search(r"size=(\d+)([KMGT]?)", str(config[drive_id]))
+        if match:
+            mult = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}[match.group(2)]
+            capacity_bytes = int(match.group(1)) * mult
 
-        response = {
+        response: Dict[str, Any] = {
             "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Drives/{drive_id}",
             "@odata.type": "#Drive.v1_17_0.Drive",
             "Id": drive_id,
             "Name": f"Drive {drive_id}",
-            "CapacityBytes": size,
             "Status": {"State": "Enabled", "Health": "OK"},
         }
+        if capacity_bytes is not None:
+            response["CapacityBytes"] = capacity_bytes
         return response
     except Exception as e:
         return handle_proxmox_error("Drive detail retrieval", e, vm_id)
@@ -1214,6 +1224,37 @@ def get_volume_collection(
             "Members@odata.count": len(volumes),
         }
         return response
+
+    except Exception as e:
+        return handle_proxmox_error("Volume collection retrieval", e, vm_id)
+
+
+def get_volume_detail(
+    proxmox: ProxmoxAPI, vm_id: int, storage_id: str, volume_id: str
+) -> Union[Dict[str, Any], Tuple[Dict[str, Any], int]]:
+    try:
+        config = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).config.get() or {}
+        if storage_id != "1" or volume_id not in config:
+            return (
+                {"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Volume {volume_id} not found"}},
+                404,
+            )
+        # Parse "...,size=32G" if present.
+        capacity_bytes = None
+        spec = str(config[volume_id])
+        match = re.search(r"size=(\d+)([KMGT]?)", spec)
+        if match:
+            mult = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}[match.group(2)]
+            capacity_bytes = int(match.group(1)) * mult
+        response: Dict[str, Any] = {
+            "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Volumes/{volume_id}",
+            "@odata.type": "#Volume.v1_6_2.Volume",
+            "Id": volume_id,
+            "Name": f"Volume {volume_id}",
+        }
+        if capacity_bytes is not None:
+            response["CapacityBytes"] = capacity_bytes
+        return response
     except Exception as e:
         return handle_proxmox_error("Volume collection retrieval", e, vm_id)
 
@@ -1233,19 +1274,17 @@ def get_controller_collection(
                 "Controller collection retrieval", Exception("Failed to retrieve VM configuration"), vm_id
             )
 
-        # Get controllers from config
-        controllers = []
-        for dev_type in ["scsi", "sata", "ide"]:
-            for i in range(4):
-                dev_key = f"{dev_type}{i}"
-                if dev_key in config:
-                    controllers.append(
-                        {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Controllers/{dev_type}"}
-                    )
+        # One controller per present bus type (deduplicated).
+        base = f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Controllers"
+        present = []
+        for dev_type in ["scsi", "sata", "ide", "virtio"]:
+            if any(f"{dev_type}{i}" in config for i in range(8)) and dev_type not in present:
+                present.append(dev_type)
+        controllers = [{"@odata.id": f"{base}/{dev_type}"} for dev_type in present]
 
         response = {
-            "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Controllers",
-            "@odata.type": "#ControllerCollection.ControllerCollection",
+            "@odata.id": base,
+            "@odata.type": "#StorageControllerCollection.StorageControllerCollection",
             "Name": "Controller Collection",
             "Members": controllers,
             "Members@odata.count": len(controllers),
@@ -1253,6 +1292,35 @@ def get_controller_collection(
         return response
     except Exception as e:
         return handle_proxmox_error("Controller collection retrieval", e, vm_id)
+
+
+def get_controller_detail(
+    proxmox: ProxmoxAPI, vm_id: int, storage_id: str, controller_id: str
+) -> Union[Dict[str, Any], Tuple[Dict[str, Any], int]]:
+    try:
+        config = proxmox.nodes(PROXMOX_NODE).qemu(vm_id).config.get() or {}
+        present = controller_id in ("scsi", "sata", "ide", "virtio") and any(
+            f"{controller_id}{i}" in config for i in range(8)
+        )
+        if storage_id != "1" or not present:
+            return (
+                {
+                    "error": {
+                        "code": "Base.1.0.ResourceMissingAtURI",
+                        "message": f"Controller {controller_id} not found",
+                    }
+                },
+                404,
+            )
+        return {
+            "@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage/{storage_id}/Controllers/{controller_id}",
+            "@odata.type": "#StorageController.v1_6_0.StorageController",
+            "Id": controller_id,
+            "Name": f"{controller_id} Controller",
+            "Status": {"State": "Enabled", "Health": "OK"},
+        }
+    except Exception as e:
+        return handle_proxmox_error("Controller detail retrieval", e, vm_id)
 
 
 def get_ethernet_interface_collection(
@@ -1468,20 +1536,23 @@ def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tupl
         except (ValueError, TypeError):
             memory_mb = 0
         memory_gib = memory_mb / 1024.0
-        memory_field = {
-            "@odata.id": f"/redfish/v1/Systems/{vm_id}/Memory",
-            "TotalSystemMemoryGiB": round(memory_gib, 2),
-        }
+        # Memory is a navigation link (only @odata.id); the summary belongs in MemorySummary.
+        memory_field = {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Memory"}
+        memory_summary = {"TotalSystemMemoryGiB": round(memory_gib, 2)}
 
-        # Add Boot field as expected by tests
-        boot_order = config.get("boot", "")
+        # BootOrder must be an array; parse Proxmox "order=scsi0;ide2;net0".
+        raw_boot = config.get("boot", "")
+        boot_list = []
+        if isinstance(raw_boot, str) and raw_boot:
+            boot_list = raw_boot.replace("order=", "").split(";")
+            boot_list = [b for b in boot_list if b]
         boot_field = {
             "BootSourceOverrideEnabled": "Once",  # or "Continuous"/"Disabled" as appropriate
             "BootSourceOverrideTarget": "None",  # Could be "Pxe", "Cd", "Hdd", etc.
             "BootSourceOverrideMode": "UEFI" if config.get("bios") == "ovmf" else "Legacy",
             "BootSourceOverrideTarget@Redfish.AllowableValues": ["Pxe", "Cd", "Hdd"],
             "BootSourceOverrideMode@Redfish.AllowableValues": ["UEFI", "Legacy"],
-            "BootOrder": boot_order,
+            "BootOrder": boot_list,
         }
 
         # Add Actions field as expected by tests
@@ -1506,8 +1577,9 @@ def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tupl
             "Id": str(vm_id),
             "Name": config.get("name", f"VM-{vm_id}"),
             "SystemType": "Physical",
-            "Status": {"State": power_state, "Health": health},
+            "Status": {"State": "Enabled", "Health": health},
             "PowerState": power_state,
+            "MemorySummary": memory_summary,
             "Bios": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Bios"},
             "SecureBoot": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/SecureBoot"},
             "Processors": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Processors"},
@@ -1571,7 +1643,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         members = [{"@odata.id": f"/redfish/v1/Systems/{vm['vmid']}"} for vm in vm_list]
                         response = {
                             "@odata.id": "/redfish/v1/Systems",
-                            "@odata.type": "#SystemCollection.SystemCollection",
+                            "@odata.type": "#ComputerSystemCollection.ComputerSystemCollection",
                             "Name": "Systems Collection",
                             "Members": members,
                             "Members@odata.count": len(members),
@@ -1641,11 +1713,27 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         if isinstance(response, tuple):
                             response, status_code = response
                     elif (
+                        len(parts) == 9 and parts[5] == "Storage" and parts[7] == "Volumes"
+                    ):  # /redfish/v1/Systems/<vm_id>/Storage/<storage_id>/Volumes/<volume_id>
+                        vm_id = int(parts[4])
+                        storage_id = parts[6]
+                        response = get_volume_detail(proxmox, vm_id, storage_id, parts[8])
+                        if isinstance(response, tuple):
+                            response, status_code = response
+                    elif (
                         len(parts) == 8 and parts[5] == "Storage" and parts[7] == "Controllers"
                     ):  # /redfish/v1/Systems/<vm_id>/Storage/<storage_id>/Controllers
                         vm_id = int(parts[4])
                         storage_id = parts[6]
                         response = get_controller_collection(proxmox, vm_id, storage_id)
+                        if isinstance(response, tuple):
+                            response, status_code = response
+                    elif (
+                        len(parts) == 9 and parts[5] == "Storage" and parts[7] == "Controllers"
+                    ):  # /redfish/v1/Systems/<vm_id>/Storage/<storage_id>/Controllers/<controller_id>
+                        vm_id = int(parts[4])
+                        storage_id = parts[6]
+                        response = get_controller_detail(proxmox, vm_id, storage_id, parts[8])
                         if isinstance(response, tuple):
                             response, status_code = response
                     elif (
@@ -1687,6 +1775,8 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                             "error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"Resource not found: {path}"}
                         }
                 # --- New: Managers endpoints (Metal3/Ironic path) -----------------
+                elif path == "/redfish/v1/Managers":
+                    response, status_code = redfish_services.build_managers_collection(proxmox)
                 elif path.startswith("/redfish/v1/Managers/") and len(parts) == 5 and parts[4].isdigit():
                     # /redfish/v1/Managers/<manager_id> - Manager detail
                     manager_id = parts[4]  # string

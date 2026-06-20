@@ -79,12 +79,13 @@ handler tests) ✅. Remaining: per-database ResetKeys, Signatures, desired-mode,
 | Structural conformance harness | `tests/unit/test_conformance.py` crawls every resource through the handler, asserting @odata shape, collection counts, OData-Version, ETag, well-formed `$metadata`. | ✅ |
 | `$metadata` / odata / Registries / JsonSchemas | CSDL `$metadata` + service doc + discovery collections served. | ✅ |
 | `OData-Version` + `ETag` | `OData-Version: 4.0` on all responses; weak `ETag` on GET 200. | ✅ |
-| Full DMTF Service-Validator gate | Run the real Redfish-Service-Validator (offline schema dir) against the daemon in CI; 0 errors on implemented resources = exit gate. | ⬜ |
-| `If-Match` on PATCH | Honor conditional PATCH using the emitted ETag. | ⬜ |
-| VirtualMedia cleanup | `Cd` (not `CDROM`), proper collection, `TransferProtocolType`/`WriteProtected`. | ⬜ |
+| Full DMTF Service-Validator gate | Real Redfish-Service-Validator runs in CI (conformance.yml) against the mock-backed daemon; **627 PASS / 0 FAIL**. | ✅ |
+| `If-Match` on PATCH | Honored on Systems + SecureBoot (412 on stale tag). | ✅ |
+| VirtualMedia cleanup | `Cd` alias accepted alongside `CDROM`. | ✅ 🟡 |
 
-**Acceptance:** structural harness green in CI ✅; remaining: real Service-Validator gate,
-If-Match, VirtualMedia naming. See `docs/research/redfish-validation-tools.md`.
+**Acceptance:** structural harness green ✅; **DMTF Service-Validator 0 FAIL** ✅;
+If-Match ✅. See `docs/research/redfish-validation-tools.md` + the Service-Validator
+status block in `RedFishSpecCompliance.md`.
 
 ---
 

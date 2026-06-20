@@ -448,10 +448,11 @@ def _cert_body(vmid: int, dbid: str, cert_id: str, pem: str) -> Dict[str, Any]:
 
 
 def get_cert_collection(vmid: int, dbid: str) -> Tuple[Dict[str, Any], int]:
-    if dbid not in SB_DATABASES:
+    if dbid not in SB_DATABASES_ALL:
         return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": f"db {dbid} not found"}}, 404)
     base = f"/redfish/v1/Systems/{vmid}/SecureBoot/SecureBootDatabases/{dbid}/Certificates"
-    members = [{"@odata.id": f"{base}/{cid}"} for cid in _list_staged(vmid, dbid)]
+    # Read-only/default databases never have staged certs.
+    members = [{"@odata.id": f"{base}/{cid}"} for cid in _list_staged(vmid, dbid)] if dbid in SB_DATABASES else []
     return (
         {
             "@odata.id": base,

@@ -1,0 +1,51 @@
+name: Redfish Conformance
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  service-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies + DMTF Service-Validator
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+          pip install redfish_service_validator
+
+      - name: Start mock-backed Redfish daemon
+        run: |
+          REDFISH_LOGGING_ENABLED=false nohup python tools/mock_server.py 8000 > /tmp/mock_server.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8000/redfish/v1 >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:8000/redfish/v1 >/dev/null || (cat /tmp/mock_server.log; exit 1)
+
+      - name: Run DMTF Redfish-Service-Validator
+        run: |
+          rf_service_validator -u admin -p admin -r http://localhost:8000 \
+            --authtype Basic --logdir conformance-report --nooemcheck | tee /tmp/rsv.txt
+          # Fail the job if the validator reported any FAIL.
+          fails=$(grep -A2 -E 'PASS .*WARN .*FAIL' /tmp/rsv.txt | grep -oE '[0-9]+' | sed -n '3p')
+          echo "Validator FAIL count: ${fails:-unknown}"
+          test "${fails:-1}" = "0"
+
+      - name: Upload conformance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redfish-conformance-report
+          path: conformance-report/

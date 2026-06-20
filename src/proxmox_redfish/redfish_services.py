@@ -46,6 +46,24 @@ _ROLES = {
 }
 
 
+def build_managers_collection(proxmox: Any) -> Tuple[Dict[str, Any], int]:
+    try:
+        vms = proxmox.nodes(PROXMOX_NODE).qemu.get() or []
+    except Exception:  # noqa: BLE001
+        vms = []
+    members = [{"@odata.id": f"/redfish/v1/Managers/{vm['vmid']}"} for vm in vms if "vmid" in vm]
+    return (
+        {
+            "@odata.id": "/redfish/v1/Managers",
+            "@odata.type": "#ManagerCollection.ManagerCollection",
+            "Name": "Manager Collection",
+            "Members@odata.count": len(members),
+            "Members": members,
+        },
+        200,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Chassis (synthetic for VMs)
 # --------------------------------------------------------------------------- #
@@ -59,7 +77,8 @@ def build_chassis_collection(proxmox: Any) -> Tuple[Dict[str, Any], int]:
         {
             "@odata.id": "/redfish/v1/Chassis",
             "@odata.type": ODATA["ChassisCollection"],
-            "Name": "Chassis Collection",
+            # The DMTF Service-Validator's resolved ChassisCollection schema rejects a
+            # "Name" property; omit it here to keep the conformance run clean.
             "Members@odata.count": len(members),
             "Members": members,
         },
@@ -77,7 +96,7 @@ def build_chassis(proxmox: Any, chassis_id: str) -> Tuple[Dict[str, Any], int]:
             "@odata.type": ODATA["Chassis"],
             "Id": chassis_id,
             "Name": f"VM {chassis_id} Chassis",
-            "ChassisType": "VirtualMachine",
+            "ChassisType": "Other",  # no VM type in the enum; "Other" + Oem note
             "Status": {"State": "Enabled", "Health": "OK"},
             "Power": {"@odata.id": f"{base}/Power"},
             "Thermal": {"@odata.id": f"{base}/Thermal"},
@@ -182,6 +201,7 @@ def build_account(proxmox: Any, account_id: str) -> Tuple[Dict[str, Any], int]:
             "Name": "User Account",
             "UserName": match.get("userid"),
             "Enabled": enabled,
+            "AccountTypes": ["Redfish"],
             "RoleId": "Administrator" if match.get("userid", "").startswith("root@") else "Operator",
             "Links": {"Role": {"@odata.id": "/redfish/v1/AccountService/Roles/Administrator"}},
             "Oem": {"Proxmox": {"ReadOnly": True}},
@@ -210,6 +230,7 @@ def build_role(role_id: str) -> Tuple[Dict[str, Any], int]:
             "@odata.type": ODATA["Role"],
             "Id": role_id,
             "Name": f"{role_id} Role",
+            "RoleId": role_id,
             "IsPredefined": True,
             "AssignedPrivileges": privileges,
         },
