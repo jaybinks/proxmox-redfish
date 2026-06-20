@@ -271,6 +271,45 @@ class HandlerRouteTests(unittest.TestCase):
         self.assertNotIn("412", status_line(h))
         rp.assert_called_once()
 
+    # Lenient vs strict protocol mode --------------------------------------
+    def test_lenient_accepts_bad_odata_version(self):
+        with patch("proxmox_redfish.proxmox_redfish.STRICT_PROTOCOL", False):
+            h = make_handler(path="/redfish/v1")
+            h.headers["OData-Version"] = "4.1"
+            h.do_GET()
+            self.assertIn("200", status_line(h))
+
+    def test_strict_rejects_bad_odata_version(self):
+        with patch("proxmox_redfish.proxmox_redfish.STRICT_PROTOCOL", True):
+            h = make_handler(path="/redfish/v1")
+            h.headers["OData-Version"] = "4.1"
+            h.do_GET()
+            self.assertIn("412", status_line(h))
+
+    def test_lenient_ignores_unknown_dollar_param(self):
+        with patch("proxmox_redfish.proxmox_redfish.STRICT_PROTOCOL", False):
+            h = make_handler(path="/redfish/v1?$bogus=1")
+            h.do_GET()
+            self.assertIn("200", status_line(h))
+
+    def test_strict_501_on_unknown_dollar_param(self):
+        with patch("proxmox_redfish.proxmox_redfish.STRICT_PROTOCOL", True):
+            h = make_handler(path="/redfish/v1?$bogus=1")
+            h.do_GET()
+            self.assertIn("501", status_line(h))
+
+    # Unsupported method on existing resource -> 405 ------------------------
+    def test_patch_unsupported_on_existing_is_405(self):
+        h = make_handler(method="PATCH", path="/redfish/v1/Chassis/100", body=b"{}")
+        h.do_PATCH()
+        self.assertIn("405", status_line(h))
+        self.assertTrue(header_present(h, "Allow"))
+
+    def test_patch_nonexistent_is_404(self):
+        h = make_handler(method="PATCH", path="/redfish/v1/Nope/123", body=b"{}")
+        h.do_PATCH()
+        self.assertIn("404", status_line(h))
+
 
 if __name__ == "__main__":
     unittest.main()

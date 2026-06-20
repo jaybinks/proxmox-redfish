@@ -65,6 +65,8 @@ def main() -> None:
     mod.ProxmoxAPI = lambda *a, **k: proxmox  # type: ignore[assignment]
     # Enable Redfish session login (POST /SessionService/Sessions).
     mod.AUTH = "Session"
+    # Validators expect full DSP0266 strictness (412 / 501).
+    mod.STRICT_PROTOCOL = True
     # SecureBoot locate_efidisk would shell out; return a canned EfiDisk.
     mod.secureboot.hostops.locate_efidisk = lambda p, v: mod.secureboot.hostops.EfiDisk(  # type: ignore[assignment]
         "local-lvm:vm-100-disk-0", "local-lvm", "/dev/pve/vm-100-disk-0", "4m", True, 540672

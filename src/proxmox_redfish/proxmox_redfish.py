@@ -59,13 +59,30 @@ else:
 logging_enabled = os.getenv("REDFISH_LOGGING_ENABLED", "true").lower() == "true"
 
 if logging_enabled:
-    # Configure logging with the specified level
+    _log_handlers: list = []
+    # Local syslog (best-effort; absent on non-Linux / containers).
+    try:
+        _log_handlers.append(logging.handlers.SysLogHandler(address="/dev/log"))
+    except Exception:  # noqa: BLE001 - no /dev/log (e.g. macOS, minimal containers)
+        _log_handlers.append(logging.StreamHandler())
+    # Optional remote logging to Grafana Loki (OS-independent HTTP push).
+    try:
+        from proxmox_redfish.loki_logging import build_loki_handler_from_env
+
+        _loki = build_loki_handler_from_env()
+        if _loki is not None:
+            _loki.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s:%(lineno)d: %(message)s"))
+            _log_handlers.append(_loki)
+    except Exception:  # noqa: BLE001 - never let logging setup break startup
+        pass
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s %(levelname)s:%(lineno)d: %(message)s",
-        handlers=[logging.handlers.SysLogHandler(address="/dev/log")],
+        handlers=_log_handlers,
     )
     logger.setLevel(log_level)
+    for _h in _log_handlers:
+        logger.addHandler(_h)
     logger.info("Proxmox-Redfish daemon started with log level: %s", log_level_str)
 else:
     logger.handlers = [logging.NullHandler()]
@@ -93,6 +110,12 @@ SSL_CA_FILE = os.getenv("SSL_CA_FILE", "/opt/redfish_daemon/config/ssl/ca.crt") 
 # -S <Secure>, --Secure=<Secure> -- <Secure>={ None | Always (default) }
 AUTH = "Basic"
 SECURE = "Always"
+
+# Protocol strictness. Default LENIENT: accept sloppy clients (ignore a wrong
+# OData-Version, ignore unknown $-query params) for maximum real-world client
+# compatibility. STRICT mode enforces full DSP0266 (412 / 501) for conformance
+# validators. Toggle with REDFISH_STRICT_PROTOCOL=1.
+STRICT_PROTOCOL = os.getenv("REDFISH_STRICT_PROTOCOL", "0") == "1"
 
 # In-memory session store
 sessions: Dict[str, Dict[str, Any]] = {}
@@ -1432,6 +1455,18 @@ def get_manager(proxmox: ProxmoxAPI, manager_id: int) -> Union[Dict[str, Any], T
             "ManagerType": "BMC",
             "Status": {"State": "Enabled", "Health": "OK"},
             "VirtualMedia": {"@odata.id": f"/redfish/v1/Managers/{manager_id}/VirtualMedia"},
+            # Serial console connection info (the stream itself is via Proxmox 'qm terminal'
+            # / the VM serial socket, not inline Redfish JSON).
+            "SerialConsole": {
+                "ServiceEnabled": True,
+                "MaxConcurrentSessions": 1,
+                "ConnectTypesSupported": ["SSH", "Oem"],
+            },
+            "CommandShell": {
+                "ServiceEnabled": True,
+                "MaxConcurrentSessions": 1,
+                "ConnectTypesSupported": ["SSH"],
+            },
         }
         return response
     except Exception as e:
@@ -1581,6 +1616,7 @@ def get_vm_status(proxmox: ProxmoxAPI, vm_id: int) -> Union[Dict[str, Any], Tupl
             "Memory": memory_field,
             "Storage": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/Storage"},
             "EthernetInterfaces": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/EthernetInterfaces"},
+            "LogServices": {"@odata.id": f"/redfish/v1/Systems/{vm_id}/LogServices"},
             "Boot": boot_field,
             "Actions": actions_field,
             "Links": {"ManagedBy": [{"@odata.id": f"/redfish/v1/Managers/{vm_id}"}]},
@@ -1606,9 +1642,10 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
         status_code = 200
         self.protocol_version = "HTTP/1.1"
 
-        # A request with an OData-Version other than 4.0 must be rejected (DSP0266).
+        # A request with an OData-Version other than 4.0 is rejected only in strict mode
+        # (lenient mode accepts it, for client compatibility).
         req_odata_ver = self.headers.get("OData-Version")
-        if req_odata_ver is not None and req_odata_ver != "4.0":
+        if STRICT_PROTOCOL and req_odata_ver is not None and req_odata_ver != "4.0":
             body = json.dumps(
                 {"error": {"code": "Base.1.0.PreconditionFailed", "message": "Unsupported OData-Version."}}
             ).encode("utf-8")
@@ -1621,9 +1658,10 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        # Reject unsupported OData $-query parameters with 501 (DSP0266).
+        # Reject unsupported OData $-query parameters with 501 (DSP0266) -- strict mode
+        # only; lenient mode ignores unknown $-params for client compatibility.
         unsupported = [k for k in query_params if k.startswith("$") and k not in ("$select", "$top", "$skip")]
-        if unsupported:
+        if STRICT_PROTOCOL and unsupported:
             body = json.dumps(
                 {
                     "error": {
@@ -1792,6 +1830,12 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
                         response = get_ethernet_interface_detail(proxmox, vm_id, interface_id)
                         if isinstance(response, tuple):
                             response, status_code = response
+                    elif len(parts) == 6 and parts[5] == "LogServices":  # /Systems/<vm_id>/LogServices
+                        response, status_code = redfish_services.build_log_service_collection(int(parts[4]))
+                    elif len(parts) == 7 and parts[5] == "LogServices":  # .../LogServices/<id>
+                        response, status_code = redfish_services.build_log_service(int(parts[4]), parts[6])
+                    elif len(parts) == 8 and parts[5] == "LogServices" and parts[7] == "Entries":
+                        response, status_code = redfish_services.build_log_entries(proxmox, int(parts[4]), parts[6])
                     elif len(parts) == 6 and parts[5] == "Memory":  # /Systems/<vm_id>/Memory
                         vm_id = int(parts[4])
                         response, status_code = redfish_core.build_memory_collection(proxmox, vm_id)
@@ -2616,6 +2660,7 @@ class RedfishRequestHandler(BaseHTTPRequestHandler):
             r"/redfish/v1/Systems/\d+/Storage(/.+)?",
             r"/redfish/v1/Systems/\d+/EthernetInterfaces(/.+)?",
             r"/redfish/v1/Systems/\d+/Memory(/.+)?",
+            r"/redfish/v1/Systems/\d+/LogServices(/.+)?",
             r"/redfish/v1/Systems/\d+/SecureBoot(/.+)?",
             r"/redfish/v1/Chassis",
             r"/redfish/v1/Chassis/\d+(/(Power|Thermal))?",

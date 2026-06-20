@@ -46,6 +46,94 @@ _ROLES = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# LogService -- VM console/serial + Proxmox task log surfaced as Redfish entries
+# --------------------------------------------------------------------------- #
+_LOG_IDS = {
+    "SEL": "System Event Log (Proxmox VM task log)",
+    "SerialLog": "Serial console output",
+}
+
+
+def build_log_service_collection(vmid: int) -> Tuple[Dict[str, Any], int]:
+    base = f"/redfish/v1/Systems/{vmid}/LogServices"
+    return (
+        {
+            "@odata.id": base,
+            "@odata.type": "#LogServiceCollection.LogServiceCollection",
+            "Name": "Log Service Collection",
+            "Members@odata.count": len(_LOG_IDS),
+            "Members": [{"@odata.id": f"{base}/{lid}"} for lid in _LOG_IDS],
+        },
+        200,
+    )
+
+
+def build_log_service(vmid: int, log_id: str) -> Tuple[Dict[str, Any], int]:
+    if log_id not in _LOG_IDS:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": "log service not found"}}, 404)
+    base = f"/redfish/v1/Systems/{vmid}/LogServices/{log_id}"
+    body = {
+        "@odata.id": base,
+        "@odata.type": "#LogService.v1_3_0.LogService",
+        "Id": log_id,
+        "Name": _LOG_IDS[log_id],
+        "ServiceEnabled": True,
+        "OverWritePolicy": "WrapsWhenFull",
+        "LogEntryType": "Event" if log_id == "SEL" else "OEM",
+        "Entries": {"@odata.id": f"{base}/Entries"},
+    }
+    if log_id == "SerialLog":
+        body["Oem"] = {
+            "Proxmox": {"Note": "VM serial output; configure 'serial0: socket' on the VM. Stream via 'qm terminal'."}
+        }
+    return body, 200
+
+
+def _vm_tasks(proxmox: Any, vmid: int) -> list:
+    try:
+        return proxmox.nodes(PROXMOX_NODE).tasks.get(vmid=vmid, limit=100) or []
+    except Exception:  # noqa: BLE001 - vmid filter unsupported on old PVE -> fall back
+        try:
+            return [t for t in (proxmox.nodes(PROXMOX_NODE).tasks.get() or []) if str(t.get("id")) == str(vmid)]
+        except Exception:  # noqa: BLE001
+            return []
+
+
+def build_log_entries(proxmox: Any, vmid: int, log_id: str) -> Tuple[Dict[str, Any], int]:
+    if log_id not in _LOG_IDS:
+        return ({"error": {"code": "Base.1.0.ResourceMissingAtURI", "message": "log service not found"}}, 404)
+    base = f"/redfish/v1/Systems/{vmid}/LogServices/{log_id}/Entries"
+    members = []
+    if log_id == "SEL":
+        for idx, task in enumerate(_vm_tasks(proxmox, vmid), start=1):
+            status = task.get("status", "")
+            severity = "OK" if status in ("OK", "", "running", None) else "Critical"
+            members.append(
+                {
+                    "@odata.id": f"{base}/{idx}",
+                    "@odata.type": "#LogEntry.v1_11_0.LogEntry",
+                    "Id": str(idx),
+                    "Name": "Log Entry",
+                    "EntryType": "Event",
+                    "Severity": severity,
+                    "Message": "{} ({})".format(task.get("type", "task"), status or "n/a"),
+                    "MessageId": "Base.1.0.Success" if severity == "OK" else "Base.1.0.GeneralError",
+                    "OemRecordFormat": "Proxmox",
+                }
+            )
+    return (
+        {
+            "@odata.id": base,
+            "@odata.type": "#LogEntryCollection.LogEntryCollection",
+            "Name": "Log Entry Collection",
+            "Members@odata.count": len(members),
+            "Members": members,
+        },
+        200,
+    )
+
+
 def build_managers_collection(proxmox: Any) -> Tuple[Dict[str, Any], int]:
     try:
         vms = proxmox.nodes(PROXMOX_NODE).qemu.get() or []

@@ -137,6 +137,37 @@ class TestMisc:
         assert rs.build_registries()["Members@odata.count"] == 0
         assert rs.build_json_schemas()["Members@odata.count"] == 0
 
+
+class TestLogService:
+    def test_collection(self):
+        body, code = rs.build_log_service_collection(100)
+        assert code == 200 and body["Members@odata.count"] == 2
+
+    def test_service(self):
+        body, code = rs.build_log_service(100, "SEL")
+        assert code == 200 and body["Entries"]["@odata.id"].endswith("/Entries")
+
+    def test_service_invalid(self):
+        _, code = rs.build_log_service(100, "Nope")
+        assert code == 404
+
+    def test_entries_from_tasks(self):
+        proxmox = MagicMock()
+        proxmox.nodes.return_value.tasks.get.return_value = [
+            {"type": "qmstart", "status": "OK"},
+            {"type": "qmstop", "status": "command failed"},
+        ]
+        body, code = rs.build_log_entries(proxmox, 100, "SEL")
+        assert code == 200 and body["Members@odata.count"] == 2
+        sev = [m["Severity"] for m in body["Members"]]
+        assert "OK" in sev and "Critical" in sev
+
+    def test_entries_tolerates_api_error(self):
+        proxmox = MagicMock()
+        proxmox.nodes.return_value.tasks.get.side_effect = Exception("boom")
+        body, code = rs.build_log_entries(proxmox, 100, "SEL")
+        assert code == 200 and body["Members@odata.count"] == 0
+
     def test_certificate_service(self, monkeypatch):
         monkeypatch.setenv("SSL_CERT_FILE", "/x/server.crt")
         svc = rs.build_certificate_service()
