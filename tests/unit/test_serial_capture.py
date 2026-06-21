@@ -7,14 +7,14 @@ from proxmox_redfish import serial_capture as sc
 
 
 class TestCaptureGating:
-    def test_disabled_by_default(self):
+    def test_enabled_by_default(self):
         with patch.dict("os.environ", {}, clear=False) as e:
             e.pop("REDFISH_SERIAL_CAPTURE", None)
-            assert sc.capture_enabled() is False
-
-    def test_enabled_via_env(self):
-        with patch.dict("os.environ", {"REDFISH_SERIAL_CAPTURE": "1"}):
             assert sc.capture_enabled() is True
+
+    def test_disable_via_env(self):
+        with patch.dict("os.environ", {"REDFISH_SERIAL_CAPTURE": "0"}):
+            assert sc.capture_enabled() is False
 
     def test_ensure_collector_noop_when_disabled(self):
         with patch.dict("os.environ", {"REDFISH_SERIAL_CAPTURE": "0"}):

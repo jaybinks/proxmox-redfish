@@ -10,10 +10,11 @@ a small background reader that connects to that socket and appends lines to a bo
 in-memory ring buffer (one per VM). The daemon runs as root on the host and can read
 the socket directly.
 
-OPT-IN: enabled only when REDFISH_SERIAL_CAPTURE=1. The QEMU serial socket accepts a
-single client, so capturing it means an interactive ``qm terminal <vmid>`` cannot
-attach at the same time -- hence off by default. Capture is lazy: a collector for a
-VM starts on first access to its SerialLog entries.
+Capture is ON by default and lazy: a collector for a VM serial port starts the first
+time someone requests that port's SerialLog entries -- nothing runs for VMs nobody
+asks about. The QEMU serial socket accepts a single client, so while a port is being
+captured an interactive ``qm terminal <vmid>`` cannot attach to it; set
+REDFISH_SERIAL_CAPTURE=0 to disable capture entirely if that matters.
 
 History is from first-capture onward and is lost on daemon restart (in-memory by
 design -- no host files, no extra perms). Memory is bounded by REDFISH_SERIAL_MAX_LINES.
@@ -38,7 +39,9 @@ SERIAL_PORTS = (0, 1, 2, 3)
 
 
 def capture_enabled() -> bool:
-    return os.getenv("REDFISH_SERIAL_CAPTURE", "0") == "1"
+    # On by default; capture still only starts lazily when a serial port is requested.
+    # Set REDFISH_SERIAL_CAPTURE=0 to disable entirely (frees the socket for qm terminal).
+    return os.getenv("REDFISH_SERIAL_CAPTURE", "1") != "0"
 
 
 def socket_path(vmid: int, port: int = 0) -> str:
