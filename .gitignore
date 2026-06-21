@@ -84,3 +84,6 @@ config/ssl/*.pem
 .claude/worktrees/
 src/proxmox_redfish/_buildinfo.py
 SchemaFiles/*.zip
+
+# The packaging template is a non-secret default (CHANGE_ME); must ship in the repo.
+!packaging/params.env
