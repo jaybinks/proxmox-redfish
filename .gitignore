@@ -83,3 +83,4 @@ config/ssl/*.pem
 .venv/
 .claude/worktrees/
 src/proxmox_redfish/_buildinfo.py
+SchemaFiles/*.zip
